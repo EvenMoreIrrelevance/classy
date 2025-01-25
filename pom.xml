@@ -4,7 +4,7 @@
   <packaging>jar</packaging>
   <groupId>io.github.evenmoreirrelevance</groupId>
   <artifactId>classy</artifactId>
-  <version>0.0.1-alpha1-SNAPSHOT</version>
+  <version>0.0.1-alpha2-SNAPSHOT</version>
   <name>classy</name>
   <licenses>
     <license>
@@ -30,6 +30,6 @@
   </repositories>
   <scm>
     <url>https://github.com/EvenMoreIrrelevance/classy.git</url>
-    <tag>v0.0.1-alpha-SNAPSHOT</tag>
+    <tag>v0.0.1-alpha2-SNAPSHOT</tag>
   </scm>
 </project>
