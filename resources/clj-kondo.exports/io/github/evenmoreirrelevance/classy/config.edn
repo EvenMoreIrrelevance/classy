@@ -1,0 +1,5 @@
+{:hooks
+ {:macroexpand
+  {io.github.evenmoreirrelevance.classy.util/throw-when io.github.evenmoreirrelevance.classy.util/throw-when
+   io.github.evenmoreirrelevance.classy.core/instance io.github.evenmoreirrelevance.classy.core/instance 
+   io.github.evenmoreirrelevance.classy.core/defsubclass io.github.evenmoreirrelevance.classy.core/defsubclass}}}

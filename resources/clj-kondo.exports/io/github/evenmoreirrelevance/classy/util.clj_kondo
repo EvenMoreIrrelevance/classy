@@ -1,0 +1,5 @@
+(ns io.github.evenmoreirrelevance.classy.util)
+
+(defmacro throw-when [[bind expr] msg map]
+  `(when-let [~bind ~expr]
+     (throw (ex-info ~msg ~map))))

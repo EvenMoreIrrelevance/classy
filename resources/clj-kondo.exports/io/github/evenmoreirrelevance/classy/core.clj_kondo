@@ -1,0 +1,14 @@
+(ns io.github.evenmoreirrelevance.classy.core)
+
+(defmacro instance
+  [[cls & ctor-args] & reify-syntax]
+  `(do (reify ~@reify-syntax)
+       (new ~cls ~@ctor-args)))
+
+(defmacro defsubclass [name [_cls & ctor-specs] fields & deftype-syntax]
+  `(do
+     ~@(when (seq ctor-specs)
+        `[(defn ~(symbol (str "->" name))
+            ~@(for [s ctor-specs] `([~@fields ~@s] [~@fields ~@s])))])
+     (deftype ~(with-meta (gensym) {:private true}) ~fields ~@deftype-syntax)
+     (import '~name) ~name))
