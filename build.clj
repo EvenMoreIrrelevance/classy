@@ -87,13 +87,14 @@
     (when (= tag (with-out-str (runit {:input *out*} ["git" "tag" "--list" tag])))
       (throw (ex-info "version already tagged" {:version version})))
     (jar _)
+    (runit ["git" "commit" "-am" (str "deploy " tag)])
+    (runit ["git" "tag" "--force" tag])
+    (runit ["git" "push"])
+    (runit ["git" "push" "origin" "tag" "--force" tag])
     (deps-deploy/deploy
       {:artifact jar-file
        :installer :remote
-       :sign-releases? false})
-    (runit ["git" "commit" "-am" (str "deploy " tag)])
-    (runit ["git" "tag" "--force" tag])
-    (runit ["git" "push" "origin" "tag" tag])))
+       :sign-releases? false})))
 
 (comment 
   (jar nil)
