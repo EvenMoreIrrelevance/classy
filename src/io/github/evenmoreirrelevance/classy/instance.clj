@@ -1,4 +1,4 @@
-(ns io.github.evenmoreirrelevance.classy.instance
+(ns ^:no-doc io.github.evenmoreirrelevance.classy.instance
   (:require [io.github.evenmoreirrelevance.classy.util :as util]
             [clojure.string :as str])
   (:import (java.lang.reflect Modifier Executable Field)
@@ -86,7 +86,7 @@
               cw (->cw (+ Opcodes/ACC_PUBLIC)
                    (util/dots2slashes out-name)
                    nil
-                   (cls->internal-name supcls) (util/into-arr String (map cls->internal-name) ifaces))]
+                   (cls->internal-name supcls) (into-array String (map cls->internal-name ifaces)))]
           (doseq [^Executable m (into (vec (cls->implicit-interface supcls)))]
             (doto (->ga
                     cw

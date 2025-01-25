@@ -1,4 +1,4 @@
-(ns io.github.evenmoreirrelevance.classy.util 
+(ns ^:no-doc io.github.evenmoreirrelevance.classy.util
   (:require
    [clojure.string :as str]))
 
@@ -59,10 +59,6 @@
               (do (vreset! !place (assoc! place k true))
                   (rf acc in))))))))))
 
-(defn entry
-  [k v]
-  (clojure.lang.MapEntry/create k v))
-
 (defmacro the [expr tag]
   (let [x_ (with-meta (gensym expr) {:tag tag})]
     `(let [~x_ ~expr] ~x_)))
@@ -70,19 +66,3 @@
 (defmacro throw-when [[bind expr] msg map]
   `(when-let [~bind ~expr]
      (throw (ex-info ~msg ~map))))
-
-(defn aresize [arr sz] 
-  (let [out (make-array (.getComponentType (class arr)) sz)]
-    (System/arraycopy arr 0 out 0 (min (count arr) (count out)))))
-
-(defn into-arr
-  ([xf xs]
-   (into-arr nil xf xs))
-  ([typ xf xs]
-   (transduce
-    xf
-    (fn
-      ([^java.util.List out] (.toArray out (make-array (or typ (class (.get out 0))) (count out))))
-      ([^java.util.List acc in] (doto acc (.add in))))
-    (java.util.ArrayList.)
-    xs)))

@@ -97,18 +97,13 @@ effectively being private to it."
         impl (instance/supers->impl supers)
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
-    (when (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))
-      (throw (ex-info
-               "ctor param specs must be distinguishable by count alone"
-               {:specs ctor-fn-targets})))
-    (when-let [offending (seq (filter
-                                #(not= (+ (count %) (count fields))
-                                   (count (-> #{} (into fields) (into %))))
-                                ctor-fn-targets))]
-      (throw (ex-info
-               "ctor param spec arg names mustn't collide with field names"
-               {:offending-specs offending
-                :fields fields})))
+    (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
+      "ctor fn targets must be distinguishable by count alone" {:specs ctor-fn-targets})
+    (util/throw-when [colliding (seq (filter
+                                       #(not= (+ (count %) (count fields))
+                                          (count (-> #{} (into fields) (into %))))
+                                       ctor-fn-targets))]
+      "ctor fn target arg names mustn't collide with field names" {:colliding colliding})
     (intern *ns* (symbol (str "->" relname)))
     (let [real-impl
           (eval ;;we need the real impl at compile-time
