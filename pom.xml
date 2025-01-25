@@ -4,7 +4,7 @@
   <packaging>jar</packaging>
   <groupId>io.github.evenmoreirrelevance</groupId>
   <artifactId>classy</artifactId>
-  <version>0.0.1-alpha-SNAPSHOT</version>
+  <version>0.0.1-alpha1-SNAPSHOT</version>
   <name>classy</name>
   <licenses>
     <license>
