@@ -93,3 +93,7 @@
        :sign-releases? false})
     (runit ["git" "commit" "-am" (str "deploy " tag)])
     (runit ["git" "push" "origin" "tag" tag])))
+
+(comment 
+  (jar nil)
+  )
