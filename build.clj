@@ -92,6 +92,7 @@
        :installer :remote
        :sign-releases? false})
     (runit ["git" "commit" "-am" (str "deploy " tag)])
+    (runit ["git" "tag" "--force" tag])
     (runit ["git" "push" "origin" "tag" tag])))
 
 (comment 
