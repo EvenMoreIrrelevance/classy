@@ -96,4 +96,4 @@
 
 (comment 
   (jar nil)
-  )
+  (deploy nil))
