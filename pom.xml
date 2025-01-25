@@ -6,6 +6,7 @@
   <artifactId>classy</artifactId>
   <version>0.0.1-alpha</version>
   <name>classy</name>
+  <license>EPL-2.0</license>
   <dependencies>
     <dependency>
       <groupId>org.clojure</groupId>
