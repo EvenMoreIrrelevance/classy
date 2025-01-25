@@ -1,0 +1,4 @@
+{:config-paths
+ ["io/github/evenmoreirrelevance/classy"]
+ :linters
+ {:non-arg-vec-return-type-hint {:level :off}}}

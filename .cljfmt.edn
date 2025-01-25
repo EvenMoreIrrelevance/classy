@@ -1,0 +1,5 @@
+{:remove-surrounding-whitespace? false
+ :remove-trailing-whitespace? true
+ :remove-consecutive-blank-lines? false
+ :insert-missing-whitespace? false
+ :indents {#re ".*" [[:inner 0]]}}
