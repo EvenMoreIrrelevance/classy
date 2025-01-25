@@ -75,12 +75,9 @@
   [[^Class supcls ifaces]]
   (str/join "$" (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces)))))
 
+
 (util/once
-  (def ^Class supers->subcls-base "
-Defines a class that derives from `supcls`, implements `ifacees`, 
-and exposes the interesting part of the public and protected interface
-as super methods.
-"
+  (def ^Class supers->subcls-base
     (memoize
       (fn [[^Class supcls ifaces :as supers]]
         (let [out-name (str (namespace-munge this-ns)
