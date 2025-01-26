@@ -1,6 +1,8 @@
 # CLASSY
 More -terrible- Java inheritance support.
 
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.evenmoreirrelevance/classy.svg)](https://clojars.org/io.github.evenmoreirrelevance/classy)
+
 ## Rationale
 Clojure support for inheritance is... there.
 
