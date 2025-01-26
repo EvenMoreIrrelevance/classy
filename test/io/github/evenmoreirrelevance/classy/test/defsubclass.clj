@@ -17,9 +17,24 @@
   (deref [_]
     [_1 _2 _3 _4 _5 _6 _7 _8 _9 _10 _11 _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22]))
 
+(classy/defsubclass Ex1 [Exception [msg]] []
+  clojure.lang.IExceptionInfo
+  (getData [_] {:foo :bar})
+  (getMessage [_] "I am a stegosaurus!"))
+
+(classy/defsubclass Ex2 [Ex1 [msg]] []
+  clojure.lang.IExceptionInfo
+  (getMessage [_] "Hello there!"))
+
 (test/deftest defsubclass
   (test/testing "long ctor"
     (test/is (instance? A (->A 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 []))))
+  (test/testing "chain inheritance"
+    (let [e1 (->Ex1 "hi")
+          e2 (->Ex2 "hello")]
+      (test/is (= (.getMessage e1) "I am a stegosaurus!"))
+      (test/is (= (.getMessage e2) "Hello there!"))
+      (test/is (= (.getData e1) (.getData e2) {:foo :bar}))))
   (test/testing "big fat e2e test"
     (eval
       '(classy/defsubclass MapStackIterator [Object []]

@@ -24,9 +24,9 @@
 (let [mask (flags Modifier/STATIC Modifier/FINAL Modifier/PRIVATE)]
   (defn uninteresting?
     [^java.lang.reflect.Method x]
-    (or (not (zero? (bit-and mask (modifiers x))))
-      (.isBridge x)
-      (str/starts-with? impl-prefix (.getName x)))))
+    (or
+      (not (zero? (bit-and mask (modifiers x))))
+      (.isBridge x))))
 
 (defn cls->implicit-interface
   [^Class cls]
