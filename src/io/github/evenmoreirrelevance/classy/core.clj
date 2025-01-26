@@ -11,8 +11,8 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
   (when-not (str/starts-with? (name m) ".")
     (ex-info "expected syntax: `(super-call (.<method> targ ...args))" {}))
   (when-not (get &env 'EMI_in_impl_body)
-    (throw (ex-info "super-call disallowed outside of impl bodies" {})))
-  `(. ~targ (~(symbol (str instance/super-prefix (subs (name m) 1))) ~@args)))
+    (throw (ex-info "super-call disallowed outside of impl bodies" {}))) 
+  `(. ~'EMI_in_impl_body (~(symbol (str instance/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
 (defn ^:private resolve-iface
   [sym]
@@ -33,10 +33,9 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
                    args)
         hinted? (some #(:tag (meta %)) args)]
     `(~(vary-meta (symbol (str instance/impl-prefix name_)) assoc :tag (:tag (meta name_)))
-      [_impl# ~(cond-> self hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
-      (let [~'EMI_in_impl_body true]
-        (loop [~@(interleave args sig-args)]
-          ~@body)))))
+      [~'EMI_in_impl_body ~(cond-> self hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
+      (loop [~@(interleave args sig-args)]
+        ~@body))))
 
 (defmacro instance "
 Evaluates to an instance of `supcls` initialized with `ctor-args`, 

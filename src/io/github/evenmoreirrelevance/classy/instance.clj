@@ -43,9 +43,11 @@
   [cw acc name desc sig thrown]
   (GeneratorAdapter. (.visitMethod ^ClassWriter cw acc name desc sig thrown) acc name desc))
 
-(defn class->type
-  [^Class cls]
-  (Type/getType cls))
+(defn asm-type
+  [classname-or-cls]
+  (if (string? classname-or-cls)
+    (Type/getType (str "L" (util/dots2slashes classname-or-cls) ";"))
+    (Type/getType ^Class classname-or-cls)))
 
 (defn exe-return-type
   [^Executable m]
@@ -56,20 +58,22 @@
 (defn method-desc
   [^Executable meth]
   (Type/getMethodDescriptor
-    (class->type (exe-return-type meth))
-    (into-array Type (map class->type (.getParameterTypes meth)))))
+    (asm-type (exe-return-type meth))
+    (into-array Type (map asm-type (.getParameterTypes meth)))))
 
 (defn method-desc-with-prepended-args
   [shims ^Executable meth]
   (Type/getMethodDescriptor
-    (class->type (exe-return-type meth))
-    (into-array Type (map class->type (concat shims (.getParameterTypes meth))))))
+    (asm-type (exe-return-type meth))
+    (into-array Type (map asm-type (concat shims (.getParameterTypes meth))))))
 
 (def this-ns *ns*)
 
-(defn ^String cls->internal-name
-  [cls]
-  (Type/getInternalName ^Class cls))
+(defn ^String internal-name
+  [cls-or-name] 
+  (if (string? cls-or-name)
+    (util/dots2slashes cls-or-name)
+    (Type/getInternalName ^Class cls-or-name)))
 
 (defn supers->name
   [[^Class supcls ifaces]]
@@ -85,21 +89,33 @@
               cw (->cw (+ Opcodes/ACC_PUBLIC)
                    (util/dots2slashes out-name)
                    nil
-                   (cls->internal-name supcls) (into-array String (map cls->internal-name ifaces)))]
+                   (internal-name supcls) (into-array String (map internal-name ifaces)))]
           (doseq [^Executable m (cls->implicit-interface supcls)]
             (doto (->ga
                     cw
-                    (flags Opcodes/ACC_PUBLIC)
-                    (str super-prefix (.getName m))
+                    (flags Opcodes/ACC_PRIVATE)
+                    (str "_" super-prefix (.getName m))
                     (method-desc m) nil nil)
               (.visitCode)
               (.loadThis)
               (.loadArgs)
               (.visitMethodInsn
                 Opcodes/INVOKESPECIAL
-                (cls->internal-name supcls) (.getName m) (method-desc m))
+                (internal-name supcls) (.getName m) (method-desc m))
               (.returnValue)
-              (.endMethod)))
+              (.endMethod))
+            (doto (->ga
+                    cw
+                    (flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
+                    (str super-prefix (.getName m))
+                    (method-desc-with-prepended-args [out-name] m) nil nil)
+              (.visitCode)
+              (.loadArgs)
+              (.visitMethodInsn
+                Opcodes/INVOKEVIRTUAL
+                (internal-name out-name) (str "_" super-prefix (.getName m)) (method-desc m))
+              (.returnValue)
+              (.endMethod))) 
           (if-not (seq (.getConstructors supcls)) ; if no constructor exists, call the default one
             (let [desc (Type/getMethodDescriptor Type/VOID_TYPE (make-array Type 0))]
               (doto (->ga
@@ -111,7 +127,7 @@
                 (.loadThis)
                 (.visitMethodInsn
                   Opcodes/INVOKESPECIAL
-                  (cls->internal-name supcls) "<init>" desc)
+                  (internal-name supcls) "<init>" desc)
                 (.returnValue)
                 (.endMethod)))
             (doseq [^Executable ctor (.getConstructors supcls)]
@@ -125,10 +141,14 @@
                 (.loadArgs)
                 (.visitMethodInsn
                   Opcodes/INVOKESPECIAL
-                  (cls->internal-name supcls) "<init>" (method-desc ctor))
+                  (internal-name supcls) "<init>" (method-desc ctor))
                 (.returnValue)
                 (.endMethod))))
           (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd)))))))))
+
+(comment 
+  (.getMethods (supers->subcls-base [java.util.ArrayList #{}]))
+  )
 
 (util/once
   (def ^Class supers->impl
@@ -138,7 +158,7 @@
               subcls-base (supers->subcls-base args)
               cw (->cw (flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
                    (util/dots2slashes out-name) nil
-                   (cls->internal-name Object) nil)
+                   (internal-name Object) nil)
               meths (util/distinct-by
                       method-sig
                       (into
@@ -152,6 +172,23 @@
             (doto (->ga
                     cw
                     (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
+                    (str super-prefix mname)
+                    (method-desc-with-prepended-args [subcls-base] m) nil nil)
+              (.visitCode)
+              (as-> mw
+                (when super-impl?
+                  (doto mw
+                    (.loadArgs)
+                    (.visitMethodInsn
+                      Opcodes/INVOKESTATIC
+                      (internal-name subcls-base) (str super-prefix mname)
+                      (method-desc-with-prepended-args [subcls-base] m))
+                    (.returnValue)
+                    (.endMethod))))
+              (.visitEnd))
+            (doto (->ga
+                    cw
+                    (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
                     (str impl-prefix mname)
                     (method-desc-with-prepended-args [subcls-base] m) nil nil)
               (.visitCode)
@@ -160,8 +197,9 @@
                   (doto mw
                     (.loadArgs)
                     (.visitMethodInsn
-                      Opcodes/INVOKEVIRTUAL
-                      (cls->internal-name subcls-base) (str super-prefix mname) (method-desc m))
+                      Opcodes/INVOKESTATIC
+                      (internal-name subcls-base) (str super-prefix mname) 
+                      (method-desc-with-prepended-args [subcls-base] m))
                     (.returnValue)
                     (.endMethod))))
               (.visitEnd)))
@@ -184,7 +222,7 @@
       (.loadArgs)
       (.visitMethodInsn
         (if (.isInterface impl) Opcodes/INVOKEINTERFACE Opcodes/INVOKEVIRTUAL)
-        (cls->internal-name impl) (str impl-prefix name)
+        (internal-name impl) (str impl-prefix name)
         (method-desc-with-prepended-args [base] m))
       (.returnValue)
       (.endMethod)
@@ -201,8 +239,8 @@
         cw
         (->cw (+ Opcodes/ACC_PUBLIC)
           (util/dots2slashes outname) nil
-          (cls->internal-name base)
-          (into-array String (map #(cls->internal-name ^Class %) ifaces)))]
+          (internal-name base)
+          (into-array String (map #(internal-name ^Class %) ifaces)))]
     (doto (.visitField
             cw (+ Opcodes/ACC_PRIVATE) impl-prefix (Type/getDescriptor real-impl)  nil nil)
       (.visitEnd))
@@ -215,12 +253,12 @@
               nil nil)
         (.visitCode)
         (.loadThis)
-        (.visitTypeInsn Opcodes/NEW (cls->internal-name real-impl))
+        (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
         (.dup)
         (.loadArgs 0 (.getParameterCount impl-ctor))
         (.visitMethodInsn
           Opcodes/INVOKESPECIAL
-          (cls->internal-name real-impl) "<init>" (method-desc impl-ctor))
+          (internal-name real-impl) "<init>" (method-desc impl-ctor))
         (.visitFieldInsn
           Opcodes/PUTFIELD
           (util/dots2slashes outname) impl-prefix (Type/getDescriptor real-impl))
@@ -228,7 +266,7 @@
         (.loadArgs (.getParameterCount impl-ctor) (.getParameterCount se-ctor))
         (.visitMethodInsn
           Opcodes/INVOKESPECIAL
-          (cls->internal-name base) "<init>" (method-desc se-ctor))
+          (internal-name base) "<init>" (method-desc se-ctor))
         (.returnValue)
         (.endMethod)
         (.visitEnd)))
@@ -237,10 +275,11 @@
       cw outname base real-impl
       (util/distinct-by
         method-sig
-        (into
-          (vec (cls->implicit-interface cls))
-          (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-          ifaces)))
+        (remove #(str/starts-with? (.getName ^Executable %1) super-prefix)
+          (into
+            (vec (cls->implicit-interface cls))
+            (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
+            ifaces))))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
 (util/once
@@ -252,8 +291,8 @@
               base (supers->subcls-base supers)
               cw (->cw (+ Opcodes/ACC_PUBLIC)
                    (util/dots2slashes outname) nil
-                   (cls->internal-name base)
-                   (into-array String (map #(cls->internal-name ^Class %) ifaces)))]
+                   (internal-name base)
+                   (into-array String (map #(internal-name ^Class %) ifaces)))]
           (doto (.visitField
                   cw (+ Opcodes/ACC_PRIVATE) impl-prefix
                   (Type/getDescriptor impl)  nil nil)
@@ -270,7 +309,7 @@
               (.loadArgs 1 (.getParameterCount ctor))
               (.visitMethodInsn
                 Opcodes/INVOKESPECIAL
-                (cls->internal-name base) "<init>" (method-desc ctor))
+                (internal-name base) "<init>" (method-desc ctor))
               (.loadArg 0)
               (.visitFieldInsn
                 Opcodes/PUTFIELD

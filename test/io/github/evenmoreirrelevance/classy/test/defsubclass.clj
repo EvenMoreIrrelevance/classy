@@ -17,17 +17,20 @@
   (deref [_]
     [_1 _2 _3 _4 _5 _6 _7 _8 _9 _10 _11 _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22]))
 
-(classy/defsubclass Ex1 [Exception [msg]] []
+(classy/defsubclass Ex1 [Exception [^String msg]] []
   clojure.lang.IExceptionInfo
   (getData [_] {:foo :bar})
-  (getMessage [_] "I am a stegosaurus!"))
+  (getMessage [_] "ex1 message"))
+ 
+(classy/defsubclass Ex2 [Ex1 [^String msg]] []
+  (getMessage [_]
+    (str "ex2 message; " (classy/super-call (.getMessage _)))))
 
-(classy/defsubclass Ex2 [Ex1 [msg]] []
-  (getMessage [_] "Hello there!")
-  (getData [_] (classy/super-call (.getData _))))
+(classy/defsubclass Ex3 [Ex2 [^String msg]] []
+  (getMessage [_]
+    (classy/super-call (.getMessage _))))
 
-(classy/defsubclass Ex3 [Ex2 [msg]] []
-  (getMessage [_] (classy/super-call (.getMessage _))))
+(.getMethods Ex3)
 
 (test/deftest defsubclass
   (test/testing "long ctor"
@@ -36,9 +39,9 @@
     (let [e1 ^Ex1 (->Ex1 "hi")
           e2 ^Ex1 (->Ex2 "hello")
           e3 ^Ex1 (->Ex3 "bonjour")]
-      (test/is (= (.getMessage e1) "I am a stegosaurus!"))
-      (test/is (= (.getMessage e2) (.getMessage e3) "Hello there!"))
-      (test/is (= (.getData e1) (.getData e2) {:foo :bar}))))
+      (test/is (= (.getMessage e1) "ex1 message"))
+      (test/is (= (.getData e1) (.getData e2) {:foo :bar}))
+      (test/is (= (.getMessage e2) (.getMessage e3) "ex2 message; ex1 message"))))
   (test/testing "big fat e2e test"
     (eval
       '(classy/defsubclass MapStackIterator [Object []]
