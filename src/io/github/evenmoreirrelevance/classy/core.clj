@@ -10,11 +10,11 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
   [[m targ & args]]
   (when-not (str/starts-with? (name m) ".")
     (ex-info "expected syntax: `(super-call (.<method> targ ...args))" {}))
-  (when-not (get &env 'EMI_forwarding_impl)
+  (when-not (get &env 'EMI_in_impl_body)
     (throw (ex-info "super-call disallowed outside of impl bodies" {})))
   `(. ~targ (~(symbol (str instance/super-prefix (subs (name m) 1))) ~@args)))
 
-(defn resolve-iface
+(defn ^:private resolve-iface
   [sym]
   (let [r (resolve sym)]
     (cond
@@ -26,7 +26,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
       (throw (ex-info "not an interface" {:sym sym :resolved-val r}))
       :else r)))
 
-(defn forwarding-impl
+(defn ^:private impl-body
   [^Class base [name_ [self & args] & body]]
   (let [sig-args (map #(with-meta %1 (meta %2))
                    (repeatedly #(gensym "arg_"))
@@ -34,7 +34,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
         hinted? (some #(:tag (meta %)) args)]
     `(~(vary-meta (symbol (str instance/impl-prefix name_)) assoc :tag (:tag (meta name_)))
       [_impl# ~(cond-> self hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
-      (let [~'EMI_forwarding_impl true]
+      (let [~'EMI_in_impl_body true]
         (loop [~@(interleave args sig-args)]
           ~@body)))))
 
@@ -64,7 +64,7 @@ Note that the class of the output is left unspecified, so it mustn't be relied u
                     ~@(apply concat opts)
                     ~(symbol (.getName impl))
                     ~@(sequence
-                        (comp (filter seq?) (map (partial forwarding-impl base)))
+                        (comp (filter seq?) (map (partial impl-body base)))
                         body))
                   ~@ctor-args)]
     output))
@@ -89,7 +89,7 @@ effectively being private to it."
         opts (into {} raw-opts)
         body (apply concat raw-body)
         absname (str (namespace-munge *ns*) "." relname)
-        implname (str "_EMI_impls$" relname)
+        implname (str "_EMI_real_impl$" relname)
         supcls_ (resolve supcls)
         ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
         supers [supcls_ ifaces]
@@ -112,7 +112,7 @@ effectively being private to it."
                ~@(apply concat opts)
                ~(symbol (.getName impl))
                ~@(sequence
-                   (comp (filter seq?) (map (partial forwarding-impl base)))
+                   (comp (filter seq?) (map (partial impl-body base)))
                    body)))]
       (instance/emit-defsubtype-class [supcls_ ifaces absname] real-impl)
       `(do

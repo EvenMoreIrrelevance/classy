@@ -21,12 +21,12 @@
 (def super-prefix "EMI_super_")
 (def impl-prefix "EMI_impl_")
 
-(let [mask (flags Modifier/STATIC Modifier/FINAL Modifier/PRIVATE)]
-  (defn uninteresting?
-    [^java.lang.reflect.Method x]
+(defn uninteresting?
+  [^java.lang.reflect.Method x]
+  (let [mods (modifiers x)]
     (or
-      (not (zero? (bit-and mask (modifiers x))))
-      (.isBridge x))))
+      (not (zero? (bit-and mods (flags Modifier/STATIC Modifier/FINAL Modifier/PRIVATE))))
+      (zero? (bit-and mods (flags Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))))))
 
 (defn cls->implicit-interface
   [^Class cls]
@@ -38,6 +38,15 @@
   (defn ^ClassWriter ->cw [access name sig super ifaces]
     (doto (ClassWriter. (bit-or ClassWriter/COMPUTE_FRAMES clojure.asm.ClassWriter/COMPUTE_MAXS))
       (.visit java-8-class-version access name sig super ifaces))))
+
+(.accept (clojure.asm.ClassReader. "java.lang.Class")
+  (proxy [clojure.asm.ClassVisitor] [Opcodes/ASM5]
+    (visitModule [name_ acc_ sprablo]
+      (println [name_ acc_ sprablo])
+      (let [this (util/the clojure.asm.ClassVisitor this)]
+        (proxy-super visitModule name_ acc_ sprablo))))
+  0)
+(.getPackage Class)
 
 (defn ^GeneratorAdapter ->ga
   [cw acc name desc sig thrown]
@@ -73,8 +82,7 @@
 
 (defn supers->name
   [[^Class supcls ifaces]]
-  (str/join "$" (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces)))))
-
+  (str/join "$" (map #(str/replace % \. \_) (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces))))))
 
 (util/once
   (def ^Class supers->subcls-base
@@ -87,7 +95,7 @@
                    (util/dots2slashes out-name)
                    nil
                    (cls->internal-name supcls) (into-array String (map cls->internal-name ifaces)))]
-          (doseq [^Executable m (into (vec (cls->implicit-interface supcls)))]
+          (doseq [^Executable m (cls->implicit-interface supcls)]
             (doto (->ga
                     cw
                     (flags Opcodes/ACC_PUBLIC)
@@ -172,7 +180,6 @@
   [cw outname ^Class base ^Class impl meths]
   (doseq [^java.lang.reflect.Method m meths
           :let [name (.getName m)]]
-                  ; override with delegation to shim
     (doto (->ga cw
             (flags (if (Modifier/isPublic (modifiers m)) Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))
             name
@@ -206,8 +213,7 @@
           (cls->internal-name base)
           (into-array String (map #(cls->internal-name ^Class %) ifaces)))]
     (doto (.visitField
-            cw (+ Opcodes/ACC_PRIVATE) impl-prefix
-            (Type/getDescriptor real-impl)  nil nil)
+            cw (+ Opcodes/ACC_PRIVATE) impl-prefix (Type/getDescriptor real-impl)  nil nil)
       (.visitEnd))
     (doseq [^java.lang.reflect.Constructor se-ctor (.getConstructors base)]
                   ; emit wrapper ctor which sets shim and forwards

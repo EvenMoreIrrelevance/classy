@@ -61,7 +61,7 @@
               (do (vreset! !place (assoc! place k true))
                   (rf acc in))))))))))
 
-(defmacro the [expr tag]
+(defmacro the [tag expr]
   (let [x_ (with-meta (gensym expr) {:tag tag})]
     `(let [~x_ ~expr] ~x_)))
 
