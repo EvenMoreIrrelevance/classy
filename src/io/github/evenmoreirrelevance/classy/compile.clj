@@ -207,7 +207,7 @@
     (.visitEnd)))
 
 (defn ^Class emit-defsubtype-class
-  [[cls ifaces outname] ^Class real-impl]
+  [[cls ifaces outname] ^Class real-impl extensible?]
   (let [base
         (supers->subcls-base [cls ifaces])
         ^Executable impl-ctor
@@ -215,7 +215,7 @@
           (when (seq m) (throw (ex-info "expected `impl` to have one ctor only" {:found all})))
           f)
         cw
-        (->cw (+ Opcodes/ACC_PUBLIC)
+        (->cw (flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
           (util/dots2slashes outname) nil
           (internal-name base)
           (into-array String (map #(internal-name ^Class %) ifaces)))]

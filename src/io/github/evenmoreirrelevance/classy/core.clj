@@ -76,22 +76,22 @@ added as head parameters; if any `ctor-fn-targets` are specified, a ->relname fn
 will be defined as well which forwards to the appropriate ctor; it is recommended that
 if none are listed, a custom ctor fn is still defined for the sake of repl-friendliness.
 
-Unlike -say- a Proxy output, the output class can be inherited from with no friction;
-however, it's still discouraged.
+Unlike -say- a Proxy output, the output class can be inherited from with no friction if the 
+::extensible? option is specified to be truthy; however, it's still discouraged.
 Note that unlike in `deftype` the fields are not accessible from the instance,
 effectively being private to it."
   {:clj-kondo/ignore [:redefined-var]}
-  [relname [supcls & ctor-fn-targets] fields & deftype-syntax]
-  (let [[raw-opts raw-body] (->> deftype-syntax
+  [relname [supcls & ctor-fn-targets] fields & opts+specs]
+  (let [[raw-opts raw-specs] (->> opts+specs
                               (partition-all 2)
                               (map vec)
                               (split-with #(keyword? (% 0))))
-        opts (into {} raw-opts)
-        body (apply concat raw-body)
+        {:keys [::extensible?] :as opts} (into {} raw-opts)
+        specs (apply concat raw-specs)
         absname (str (namespace-munge *ns*) "." relname)
         implname (str "_EMI_real_impl$" relname)
         supcls_ (resolve supcls)
-        ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
+        ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) specs)
         supers [supcls_ ifaces]
         base (compile/supers->subcls-base supers)
         impl (compile/supers->impl supers)
@@ -109,12 +109,12 @@ effectively being private to it."
           (eval ;;we need the real impl at compile-time
             `(deftype ~(vary-meta (symbol implname) assoc :private true :no-doc true)
                ~fields
-               ~@(apply concat opts)
+               ~@(apply concat (dissoc opts ::extensible?))
                ~(symbol (.getName impl))
                ~@(sequence
                    (comp (filter seq?) (map (partial impl-body base)))
-                   body)))]
-      (compile/emit-defsubtype-class [supcls_ ifaces absname] real-impl)
+                   specs)))]
+      (compile/emit-defsubtype-class [supcls_ ifaces absname] real-impl extensible?)
       `(do
          (import '~(symbol absname))
          ~@(when (seq ctor-fn-targets)

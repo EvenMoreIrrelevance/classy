@@ -18,11 +18,13 @@
     [_1 _2 _3 _4 _5 _6 _7 _8 _9 _10 _11 _12 _13 _14 _15 _16 _17 _18 _19 _20 _21 _22]))
 
 (classy/defsubclass Ex1 [Exception [^String msg]] []
+  ::classy/extensible? true
   clojure.lang.IExceptionInfo
   (getData [_] {:foo :bar})
   (getMessage [_] "ex1 message"))
 
 (classy/defsubclass Ex2 [Ex1 [^String msg]] []
+  ::classy/extensible? true
   (getMessage [_]
     (str "ex2 message; " (classy/super-call (.getMessage _)))))
 
@@ -33,6 +35,9 @@
 (.getMethods Ex3)
 
 (test/deftest defsubclass
+  (test/testing "extensibie? option"
+    (test/is (java.lang.reflect.Modifier/isFinal (.getModifiers A))) 
+    (test/is (not (java.lang.reflect.Modifier/isFinal (.getModifiers Ex2)))))
   (test/testing "long ctor"
     (test/is (instance? A (->A 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 []))))
   (test/testing "chain inheritance"
@@ -170,4 +175,4 @@
 
 (comment 
   (test/run-tests)
-  )
+  ) 

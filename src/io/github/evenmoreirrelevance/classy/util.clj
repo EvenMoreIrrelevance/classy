@@ -11,7 +11,7 @@
   [[_def & def-frm :as wrapped]]
   (assert (`#{def} _def))
   `(defonce ~@def-frm)
-  #_wrapped)
+  wrapped)
 
 (defn ^Class load-and-compile
   ([cname bytecode]
