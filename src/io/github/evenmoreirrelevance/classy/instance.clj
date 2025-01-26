@@ -39,15 +39,6 @@
     (doto (ClassWriter. (bit-or ClassWriter/COMPUTE_FRAMES clojure.asm.ClassWriter/COMPUTE_MAXS))
       (.visit java-8-class-version access name sig super ifaces))))
 
-(.accept (clojure.asm.ClassReader. "java.lang.Class")
-  (proxy [clojure.asm.ClassVisitor] [Opcodes/ASM5]
-    (visitModule [name_ acc_ sprablo]
-      (println [name_ acc_ sprablo])
-      (let [this (util/the clojure.asm.ClassVisitor this)]
-        (proxy-super visitModule name_ acc_ sprablo))))
-  0)
-(.getPackage Class)
-
 (defn ^GeneratorAdapter ->ga
   [cw acc name desc sig thrown]
   (GeneratorAdapter. (.visitMethod ^ClassWriter cw acc name desc sig thrown) acc name desc))
