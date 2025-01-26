@@ -11,7 +11,7 @@ Dropping down to Java is what I recommend for all but the simplest of cases: the
 However, I believe theat there are cases where staying in Clojure is a good idea, and for these cases I find `proxy` and `gen-class` not to be adequate, both due to their implementation which makes assumptions that don't pan out most cases, and due to their feel which is very different from similar constructs like `reify`, and somewhat unpolished to boot. This library tries to address these cases.
 
 ## Features
-Only documented methods in the `io.github.evenmoreirrelevance.classy.core` namespace are considered part of the public API.
+Only documented vars in the `io.github.evenmoreirrelevance.classy.core` namespace are considered part of the public API.
 
 - `instance` covers similar use cases to `reify` and `proxy`.
 - `defsubclass` covers similar use cases to `gen-class` and `deftype`.

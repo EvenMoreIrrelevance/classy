@@ -4,6 +4,7 @@
    [io.github.evenmoreirrelevance.classy.util :as util]
    [clojure.test :as test]))
 
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defonce tomb (Object.))
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defonce notfound (Object.))

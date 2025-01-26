@@ -6,13 +6,6 @@
   [s]
   (str/replace s \. \/))
 
-#_{:clj-kondo/ignore [:unused-binding]}
-(defmacro once
-  [[_def & def-frm :as wrapped]]
-  (assert (`#{def} _def))
-  `(defonce ~@def-frm)
-  wrapped)
-
 (defn ^Class load-and-compile
   ([cname bytecode]
    (load-and-compile nil cname bytecode))

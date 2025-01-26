@@ -70,120 +70,123 @@
 (def this-ns *ns*)
 
 (defn ^String internal-name
-  [cls-or-name] 
+  [cls-or-name]
   (if (string? cls-or-name)
     (util/dots2slashes cls-or-name)
     (Type/getInternalName ^Class cls-or-name)))
 
+; to limit the scenario described in the roadmap.
+(defonce salt 
+  (str/replace (.toString (java.util.UUID/randomUUID)) "-" ""))
+
 (defn supers->name
   [[^Class supcls ifaces]]
-  (str/join "$" (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces)))))
+  (str/join "$" 
+    (concat 
+      (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces)))
+      [salt])))
 
-(util/once
-  (def ^Class supers->subcls-base
-    (memoize
-      (fn [[^Class supcls ifaces :as supers]]
-        (let [out-name (str (namespace-munge this-ns)
-                         "._subclsbase$" (supers->name supers)
-                         (str/join "$"))
-              cw (->cw (+ Opcodes/ACC_PUBLIC)
-                   (util/dots2slashes out-name)
-                   nil
-                   (internal-name supcls) (into-array String (map internal-name ifaces)))]
-          (doseq [^Executable m (overridable-methods supcls)]
+(def ^Class supers->subcls-base
+  (memoize
+    (fn [[^Class supcls ifaces :as supers]]
+      (let [out-name (str (namespace-munge this-ns) "._subclsbase$" (supers->name supers))
+            cw (->cw (+ Opcodes/ACC_PUBLIC)
+                 (util/dots2slashes out-name)
+                 nil
+                 (internal-name supcls) (into-array String (map internal-name ifaces)))]
+        (doseq [^Executable m (overridable-methods supcls)]
             ;; we do something akin to:
             ;; private void _super_foo(int x) { super.foo(x); }
             ;; static void super_foo(FooBase self, int x) { return self._super_foo(x); }
             ;; in order to get a publicly-callable and non-virtual accessor to the super method 
-            (doto (->ga cw
-                    (flags Opcodes/ACC_PRIVATE)
-                    (str "_" super-prefix (.getName m))
-                    (method-desc m) nil nil)
+          (doto (->ga cw
+                  (flags Opcodes/ACC_PRIVATE)
+                  (str "_" super-prefix (.getName m))
+                  (method-desc m) nil nil)
+            (.visitCode) (.loadThis) (.loadArgs)
+            (.visitMethodInsn
+              Opcodes/INVOKESPECIAL
+              (internal-name supcls) (.getName m) (method-desc m))
+            (.returnValue) (.endMethod))
+          (doto (->ga cw
+                  (flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
+                  (str super-prefix (.getName m))
+                  (method-desc-with-prepended-args [out-name] m) nil nil)
+            (.visitCode) (.loadArgs)
+            (.visitMethodInsn
+              Opcodes/INVOKEVIRTUAL
+              (internal-name out-name) (str "_" super-prefix (.getName m)) (method-desc m))
+            (.returnValue) (.endMethod)))
+        (if-not (seq (.getConstructors supcls))
+            ; if no constructor exists, call the default one
+          (let [desc (Type/getMethodDescriptor Type/VOID_TYPE (make-array Type 0))]
+            (doto (->ga
+                    cw
+                    (flags Opcodes/ACC_PUBLIC)
+                    "<init>"
+                    desc nil nil)
+              (.visitCode) (.loadThis)
+              (.visitMethodInsn
+                Opcodes/INVOKESPECIAL
+                (internal-name supcls) "<init>" desc)
+              (.returnValue) (.endMethod)))
+            ; else just wrap
+          (doseq [^Executable ctor (.getConstructors supcls)]
+            (doto (->ga
+                    cw
+                    (flags Opcodes/ACC_PUBLIC)
+                    "<init>"
+                    (method-desc ctor) nil nil)
               (.visitCode) (.loadThis) (.loadArgs)
               (.visitMethodInsn
                 Opcodes/INVOKESPECIAL
-                (internal-name supcls) (.getName m) (method-desc m))
-              (.returnValue) (.endMethod))
-            (doto (->ga cw
-                    (flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
-                    (str super-prefix (.getName m))
-                    (method-desc-with-prepended-args [out-name] m) nil nil)
-              (.visitCode) (.loadArgs)
-              (.visitMethodInsn
-                Opcodes/INVOKEVIRTUAL
-                (internal-name out-name) (str "_" super-prefix (.getName m)) (method-desc m))
-              (.returnValue) (.endMethod))) 
-          (if-not (seq (.getConstructors supcls)) 
-            ; if no constructor exists, call the default one
-            (let [desc (Type/getMethodDescriptor Type/VOID_TYPE (make-array Type 0))]
-              (doto (->ga
-                      cw
-                      (flags Opcodes/ACC_PUBLIC)
-                      "<init>"
-                      desc nil nil)
-                (.visitCode) (.loadThis)
-                (.visitMethodInsn
-                  Opcodes/INVOKESPECIAL
-                  (internal-name supcls) "<init>" desc)
-                (.returnValue) (.endMethod)))
-            ; else just wrap
-            (doseq [^Executable ctor (.getConstructors supcls)]
-              (doto (->ga
-                      cw
-                      (flags Opcodes/ACC_PUBLIC)
-                      "<init>"
-                      (method-desc ctor) nil nil)
-                (.visitCode) (.loadThis) (.loadArgs)
-                (.visitMethodInsn
-                  Opcodes/INVOKESPECIAL
-                  (internal-name supcls) "<init>" (method-desc ctor))
-                (.returnValue) (.endMethod))))
-          (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd)))))))))
+                (internal-name supcls) "<init>" (method-desc ctor))
+              (.returnValue) (.endMethod))))
+        (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
 
-(comment 
+(comment
   (.getMethods (supers->subcls-base [java.util.ArrayList #{}]))
   )
 
-(util/once
-  (def ^Class supers->impl
-    (memoize
-      (fn [[^Class supcls ifaces :as args]]
-        (let [out-name (str (namespace-munge this-ns) "._impl$" (supers->name args))
-              subcls-base (supers->subcls-base args)
-              cw (->cw (flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
-                   (util/dots2slashes out-name) nil
-                   (internal-name Object) nil)
-              meths (util/distinct-by
-                      method-sig
-                      (into
-                        (vec (overridable-methods supcls))
-                        (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                        ifaces))]
-          (doseq [^Executable m meths]
-            (let [mname (.getName m)
-                  super-impl?
-                  (.isAssignableFrom (.getDeclaringClass m) subcls-base)
-                  emit-visit
-                  (fn [mname-prefix]
-                    (doto (->ga cw
-                            (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
-                            (str mname-prefix mname)
-                            (method-desc-with-prepended-args [subcls-base] m) nil nil)
-                      (.visitCode)
-                      (as-> mw
-                        (when super-impl?
-                          (doto mw
-                            (.loadArgs)
-                            (.visitMethodInsn
-                              Opcodes/INVOKESTATIC
-                              (internal-name subcls-base) (str super-prefix mname)
-                              (method-desc-with-prepended-args [subcls-base] m))
-                            (.returnValue)
-                            (.endMethod))))
-                      (.visitEnd)))]
-              (emit-visit super-prefix)
-              (emit-visit impl-prefix)))
-          (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd)))))))))
+(def ^Class supers->impl
+  (memoize
+    (fn [[^Class supcls ifaces :as args]]
+      (let [out-name (str (namespace-munge this-ns) "._impl$" (supers->name args))
+            subcls-base (supers->subcls-base args)
+            cw (->cw (flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
+                 (util/dots2slashes out-name) nil
+                 (internal-name Object) nil)
+            meths (util/distinct-by
+                    method-sig
+                    (into
+                      (vec (overridable-methods supcls))
+                      (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
+                      ifaces))]
+        (doseq [^Executable m meths]
+          (let [mname (.getName m)
+                super-impl?
+                (.isAssignableFrom (.getDeclaringClass m) subcls-base)
+                emit-visit
+                (fn [mname-prefix]
+                  (doto (->ga cw
+                          (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
+                          (str mname-prefix mname)
+                          (method-desc-with-prepended-args [subcls-base] m) nil nil)
+                    (.visitCode)
+                    (as-> mw
+                      (when super-impl?
+                        (doto mw
+                          (.loadArgs)
+                          (.visitMethodInsn
+                            Opcodes/INVOKESTATIC
+                            (internal-name subcls-base) (str super-prefix mname)
+                            (method-desc-with-prepended-args [subcls-base] m))
+                          (.returnValue)
+                          (.endMethod))))
+                    (.visitEnd)))]
+            (emit-visit super-prefix)
+            (emit-visit impl-prefix)))
+        (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
 
 (defn emit-accept
   [cw outname ^Class base ^Class impl ^java.lang.reflect.Method m]
@@ -248,53 +251,52 @@
         (.returnValue)
         (.endMethod)
         (.visitEnd)))
-    
+
     (doseq [m (util/distinct-by method-sig
                 (into (vec (overridable-methods cls))
                   (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                  ifaces))] 
+                  ifaces))]
       (emit-accept cw outname base real-impl m))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
-(util/once
-  (def ^Class supers->shell
-    (memoize
-      (fn [[^Class cls ifaces :as supers]]
-        (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))
-              impl (supers->impl supers)
-              base (supers->subcls-base supers)
-              cw (->cw (+ Opcodes/ACC_PUBLIC)
-                   (util/dots2slashes outname) nil
-                   (internal-name base)
-                   (into-array String (map #(internal-name ^Class %) ifaces)))]
-          (doto (.visitField
-                  cw (+ Opcodes/ACC_PRIVATE) impl-prefix
-                  (Type/getDescriptor impl)  nil nil)
-            (.visitEnd))
-          (doseq [^java.lang.reflect.Constructor ctor (.getConstructors base)]
+(def ^Class supers->shell
+  (memoize
+    (fn [[^Class cls ifaces :as supers]]
+      (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))
+            impl (supers->impl supers)
+            base (supers->subcls-base supers)
+            cw (->cw (+ Opcodes/ACC_PUBLIC)
+                 (util/dots2slashes outname) nil
+                 (internal-name base)
+                 (into-array String (map #(internal-name ^Class %) ifaces)))]
+        (doto (.visitField
+                cw (+ Opcodes/ACC_PRIVATE) impl-prefix
+                (Type/getDescriptor impl)  nil nil)
+          (.visitEnd))
+        (doseq [^java.lang.reflect.Constructor ctor (.getConstructors base)]
           ; emit wrapper ctor which sets shim and forwards
-            (doto (->ga
-                    cw
-                    (flags Opcodes/ACC_PUBLIC)
-                    "<init>" (method-desc-with-prepended-args [impl] ctor) nil nil)
-              (.visitCode)
-              (.loadThis)
-              (.dup)
-              (.loadArgs 1 (.getParameterCount ctor))
-              (.visitMethodInsn
-                Opcodes/INVOKESPECIAL
-                (internal-name base) "<init>" (method-desc ctor))
-              (.loadArg 0)
-              (.visitFieldInsn
-                Opcodes/PUTFIELD
-                (util/dots2slashes outname) impl-prefix (Type/getDescriptor impl))
-              (.returnValue)
-              (.endMethod)
-              (.visitEnd)))
-          (doseq [m (util/distinct-by
-                      method-sig
-                      (into (vec (overridable-methods cls))
-                        (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                        ifaces))]
-            (emit-accept cw outname base impl m))
-          (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd)))))))))
+          (doto (->ga
+                  cw
+                  (flags Opcodes/ACC_PUBLIC)
+                  "<init>" (method-desc-with-prepended-args [impl] ctor) nil nil)
+            (.visitCode)
+            (.loadThis)
+            (.dup)
+            (.loadArgs 1 (.getParameterCount ctor))
+            (.visitMethodInsn
+              Opcodes/INVOKESPECIAL
+              (internal-name base) "<init>" (method-desc ctor))
+            (.loadArg 0)
+            (.visitFieldInsn
+              Opcodes/PUTFIELD
+              (util/dots2slashes outname) impl-prefix (Type/getDescriptor impl))
+            (.returnValue)
+            (.endMethod)
+            (.visitEnd)))
+        (doseq [m (util/distinct-by
+                    method-sig
+                    (into (vec (overridable-methods cls))
+                      (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
+                      ifaces))]
+          (emit-accept cw outname base impl m))
+        (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))

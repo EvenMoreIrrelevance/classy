@@ -7,11 +7,11 @@
 (defmacro super-call "
 Akin to calling a `super` method in Java. 
 Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspecified."
-  [[m targ & args]]
-  (when-not (str/starts-with? (name m) ".")
-    (ex-info "expected syntax: `(super-call (.<method> targ ...args))" {}))
-  (when-not (get &env 'EMI_in_impl_body)
-    (throw (ex-info "super-call disallowed outside of impl bodies" {})))
+  [[m targ & args :as wrapped]]
+  (util/throw-when [_ (not (str/starts-with? (name m) "."))]
+    "expected syntax: (super-call (.<method> targ ...args))" {:found wrapped})
+  (util/throw-when [_ (not (get &env 'EMI_in_impl_body))]
+    "super-call disallowed outside of impl bodies" {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
 (defn ^:private resolve-iface
