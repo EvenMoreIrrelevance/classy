@@ -2,7 +2,6 @@
   (:require [clojure.tools.build.api :as b]
             [deps-deploy.deps-deploy :as deps-deploy]
             [clojure.string :as str]
-            [clojure.test :as test]
             [clojure.edn :as edn]))
 
 (let [deps-edn (edn/read-string (slurp "deps.edn"))]
@@ -99,7 +98,4 @@
 
 (comment 
   (jar nil)
-  (deploy nil)
-  (test/run-tests
-    'io.github.evenmoreirrelevance.classy.test.defsubclass
-    'io.github.evenmoreirrelevance.classy.test.instance))
+  (deploy nil))

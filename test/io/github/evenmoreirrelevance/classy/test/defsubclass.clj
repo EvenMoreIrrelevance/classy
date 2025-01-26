@@ -21,7 +21,7 @@
   clojure.lang.IExceptionInfo
   (getData [_] {:foo :bar})
   (getMessage [_] "ex1 message"))
- 
+
 (classy/defsubclass Ex2 [Ex1 [^String msg]] []
   (getMessage [_]
     (str "ex2 message; " (classy/super-call (.getMessage _)))))
@@ -167,3 +167,7 @@
         (test/is (= beanie_ bean_) "bean and beanie equal")
         (test/is (= (assoc beanie_ 1 3) (assoc normal_ 1 3)) "beanie equal to normal after assoc")
         (test/is (= (dissoc beanie_ :name) (dissoc bean_ :name)) "dissoc test")))))
+
+(comment 
+  (test/run-tests)
+  )

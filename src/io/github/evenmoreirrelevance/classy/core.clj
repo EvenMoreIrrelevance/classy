@@ -2,7 +2,7 @@
   (:require
    [clojure.string :as str]
    [io.github.evenmoreirrelevance.classy.util :as util]
-   [io.github.evenmoreirrelevance.classy.instance :as instance]))
+   [io.github.evenmoreirrelevance.classy.compile :as compile]))
 
 (defmacro super-call "
 Akin to calling a `super` method in Java. 
@@ -11,8 +11,8 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
   (when-not (str/starts-with? (name m) ".")
     (ex-info "expected syntax: `(super-call (.<method> targ ...args))" {}))
   (when-not (get &env 'EMI_in_impl_body)
-    (throw (ex-info "super-call disallowed outside of impl bodies" {}))) 
-  `(. ~'EMI_in_impl_body (~(symbol (str instance/super-prefix (subs (name m) 1))) ~targ ~@args)))
+    (throw (ex-info "super-call disallowed outside of impl bodies" {})))
+  `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
 (defn ^:private resolve-iface
   [sym]
@@ -32,7 +32,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
                    (repeatedly #(gensym "arg_"))
                    args)
         hinted? (some #(:tag (meta %)) args)]
-    `(~(vary-meta (symbol (str instance/impl-prefix name_)) assoc :tag (:tag (meta name_)))
+    `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
       [~'EMI_in_impl_body ~(cond-> self hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
       (loop [~@(interleave args sig-args)]
         ~@body))))
@@ -54,9 +54,9 @@ Note that the class of the output is left unspecified, so it mustn't be relied u
         supcls_ (resolve supcls)
         ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
         supers [supcls_ ifaces]
-        base (instance/supers->subcls-base supers)
-        impl (instance/supers->impl supers)
-        shell (instance/supers->shell supers)
+        base (compile/supers->subcls-base supers)
+        impl (compile/supers->impl supers)
+        shell (compile/supers->shell supers)
         output `(new
                   ~(symbol (.getName shell))
                   (reify
@@ -80,6 +80,7 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
 however, it's still discouraged.
 Note that unlike in `deftype` the fields are not accessible from the instance,
 effectively being private to it."
+  {:clj-kondo/ignore [:redefined-var]}
   [relname [supcls & ctor-fn-targets] fields & deftype-syntax]
   (let [[raw-opts raw-body] (->> deftype-syntax
                               (partition-all 2)
@@ -92,8 +93,8 @@ effectively being private to it."
         supcls_ (resolve supcls)
         ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
         supers [supcls_ ifaces]
-        base (instance/supers->subcls-base supers)
-        impl (instance/supers->impl supers)
+        base (compile/supers->subcls-base supers)
+        impl (compile/supers->impl supers)
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
     (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
@@ -113,7 +114,7 @@ effectively being private to it."
                ~@(sequence
                    (comp (filter seq?) (map (partial impl-body base)))
                    body)))]
-      (instance/emit-defsubtype-class [supcls_ ifaces absname] real-impl)
+      (compile/emit-defsubtype-class [supcls_ ifaces absname] real-impl)
       `(do
          (import '~(symbol absname))
          ~@(when (seq ctor-fn-targets)

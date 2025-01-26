@@ -19,3 +19,7 @@
            clojure.lang.IDeref
            (deref [_]
              (dec (classy/super-call (.size _)))))))))
+
+(comment 
+  (test/run-tests)
+  )
