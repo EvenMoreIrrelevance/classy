@@ -23,17 +23,21 @@
   (getMessage [_] "I am a stegosaurus!"))
 
 (classy/defsubclass Ex2 [Ex1 [msg]] []
-  clojure.lang.IExceptionInfo
-  (getMessage [_] "Hello there!"))
+  (getMessage [_] "Hello there!")
+  (getData [_] (classy/super-call (.getData _))))
+
+(classy/defsubclass Ex3 [Ex2 [msg]] []
+  (getMessage [_] (classy/super-call (.getMessage _))))
 
 (test/deftest defsubclass
   (test/testing "long ctor"
     (test/is (instance? A (->A 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 []))))
   (test/testing "chain inheritance"
-    (let [e1 (->Ex1 "hi")
-          e2 (->Ex2 "hello")]
+    (let [e1 ^Ex1 (->Ex1 "hi")
+          e2 ^Ex1 (->Ex2 "hello")
+          e3 ^Ex1 (->Ex3 "bonjour")]
       (test/is (= (.getMessage e1) "I am a stegosaurus!"))
-      (test/is (= (.getMessage e2) "Hello there!"))
+      (test/is (= (.getMessage e2) (.getMessage e3) "Hello there!"))
       (test/is (= (.getData e1) (.getData e2) {:foo :bar}))))
   (test/testing "big fat e2e test"
     (eval
