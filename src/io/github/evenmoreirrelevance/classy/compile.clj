@@ -262,7 +262,7 @@
       (emit-accept cw outname base real-impl m))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
-#_(def ^Class supers->shell
+(def ^Class supers->shell
     (memoize
       (fn [[^Class cls ifaces :as supers]]
         (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))

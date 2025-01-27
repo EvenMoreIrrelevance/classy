@@ -18,7 +18,12 @@
            (^objects toArray [self ^objects x] (classy/super-call (.toArray self x)))
            clojure.lang.IDeref
            (deref [_]
-             (dec (classy/super-call (.size _)))))))))
+             (dec (classy/super-call (.size _))))))))
+  (test/testing "closures"
+    (let [a 3]
+      (test/is
+        (= a
+          (.hashCode (classy/instance (Object) (hashCode [_] a))))))))
 
 (comment 
   (test/run-tests)

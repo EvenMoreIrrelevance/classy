@@ -4,9 +4,6 @@ Like in `deftype`. It's very doable for class and methods and achievable for the
 ## AOT
 All bytecode compilation already happens as a side effect of macro-expansion (common practice in Clojure code that defines classes), so we should be safe in that regard. However due to how helper class caching currently works, there is a scenario where one could AOT compile an `instance` of `Foo` + `IBar`, load the repl, and subsequently define another; this would result in two classes with the same name, though of course with different loaders. We limit the scenario to the likelihood of a UUID collision by appending a random salt to the helper class names.
 
-## IObj behavior for instance
-Decide what to do about `instance`'s divergence vs. reify in terms of `IObj` being or not being implemented before we go out of alpha. It's likely a good idea due to `with-meta` relying on the `reify` instances being easy to copy and us not being able to make the same guarantee with arbitrary subclasses.
-
 ## Refine Implementation
 Consider switching from the current quick-and-dirty visitor approach to a recompilation approach in which we intercept the bytecode of the underlying `reify`/`deftype` and recompile it. 
 

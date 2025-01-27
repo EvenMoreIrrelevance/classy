@@ -37,7 +37,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
       (loop [~@(interleave args sig-args)]
         ~@body))))
 
-#_(defmacro instance "
+(defmacro instance "
 Evaluates to an instance of `supcls` initialized with `ctor-args`, 
 which can override its own methods like `reify` does and implement more interfaces.
 Super calls to public or protected methods are available via the `super-call` macro.
@@ -141,16 +141,3 @@ effectively being private to it."
                            (throw (java.lang.IllegalArgumentException.
                                     (str "bad arity:" (+ 19 (count ~rest-arg))))))))))])
          ~(symbol absname)))))
-
-(defmacro instance "
-Evaluates to an instance of `supcls` initialized with `ctor-args`, 
-which can override its own methods like `reify` does and implement more interfaces.
-Super calls to public or protected methods are available via the `super-call` macro.
-Note that unlike in `reify`, the output instance isn't an `IObj` by default.
-
-Note that the class of the output is left unspecified, so it mustn't be relied upon."
-  [[supcls & ctor-args] & reify-syntax]
-  (let [relname (str "_EMI_instance$" compile/salt "$" (clojure.lang.RT/nextID))
-        outcls (eval `(defsubclass ~(with-meta (symbol relname) {:private true}) (~supcls) []
-                        ~@reify-syntax))]
-    `(new ~(symbol (.getName outcls)) ~@ctor-args)))
