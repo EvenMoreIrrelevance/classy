@@ -6,7 +6,10 @@
            (clojure.asm Type ClassWriter Opcodes)))
 
 (defn ^Long flags
-  {:inline (fn [& args] `(long (@(var flags) ~@args)))}
+  {:inline (fn expand-flags
+             ([a] `(long (or ~a 0)))
+             ([a1 & args]
+              `(long (bit-or ~@(for [a (cons a1 args)] `(or ~a 0))))))}
   ([x] (or x 0))
   ([x y] (bit-or (or x 0) (or y 0)))
   ([x y & more] (apply bit-or (or x 0) (or y 0) (map #(or % 0) more))))
@@ -259,44 +262,44 @@
       (emit-accept cw outname base real-impl m))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
-(def ^Class supers->shell
-  (memoize
-    (fn [[^Class cls ifaces :as supers]]
-      (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))
-            impl (supers->impl supers)
-            base (supers->subcls-base supers)
-            cw (->cw (+ Opcodes/ACC_PUBLIC)
-                 (util/dots2slashes outname) nil
-                 (internal-name base)
-                 (into-array String (map #(internal-name ^Class %) ifaces)))]
-        (doto (.visitField
-                cw (+ Opcodes/ACC_PRIVATE) impl-prefix
-                (Type/getDescriptor impl)  nil nil)
-          (.visitEnd))
-        (doseq [^java.lang.reflect.Constructor ctor (.getConstructors base)]
+#_(def ^Class supers->shell
+    (memoize
+      (fn [[^Class cls ifaces :as supers]]
+        (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))
+              impl (supers->impl supers)
+              base (supers->subcls-base supers)
+              cw (->cw (+ Opcodes/ACC_PUBLIC)
+                   (util/dots2slashes outname) nil
+                   (internal-name base)
+                   (into-array String (map #(internal-name ^Class %) ifaces)))]
+          (doto (.visitField
+                  cw (+ Opcodes/ACC_PRIVATE) impl-prefix
+                  (Type/getDescriptor impl)  nil nil)
+            (.visitEnd))
+          (doseq [^java.lang.reflect.Constructor ctor (.getConstructors base)]
           ; emit wrapper ctor which sets shim and forwards
-          (doto (->ga
-                  cw
-                  (flags Opcodes/ACC_PUBLIC)
-                  "<init>" (method-desc-with-prepended-args [impl] ctor) nil nil)
-            (.visitCode)
-            (.loadThis)
-            (.dup)
-            (.loadArgs 1 (.getParameterCount ctor))
-            (.visitMethodInsn
-              Opcodes/INVOKESPECIAL
-              (internal-name base) "<init>" (method-desc ctor))
-            (.loadArg 0)
-            (.visitFieldInsn
-              Opcodes/PUTFIELD
-              (util/dots2slashes outname) impl-prefix (Type/getDescriptor impl))
-            (.returnValue)
-            (.endMethod)
-            (.visitEnd)))
-        (doseq [m (util/distinct-by
-                    method-sig
-                    (into (vec (overridable-methods cls))
-                      (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                      ifaces))]
-          (emit-accept cw outname base impl m))
-        (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
+            (doto (->ga
+                    cw
+                    (flags Opcodes/ACC_PUBLIC)
+                    "<init>" (method-desc-with-prepended-args [impl] ctor) nil nil)
+              (.visitCode)
+              (.loadThis)
+              (.dup)
+              (.loadArgs 1 (.getParameterCount ctor))
+              (.visitMethodInsn
+                Opcodes/INVOKESPECIAL
+                (internal-name base) "<init>" (method-desc ctor))
+              (.loadArg 0)
+              (.visitFieldInsn
+                Opcodes/PUTFIELD
+                (util/dots2slashes outname) impl-prefix (Type/getDescriptor impl))
+              (.returnValue)
+              (.endMethod)
+              (.visitEnd)))
+          (doseq [m (util/distinct-by
+                      method-sig
+                      (into (vec (overridable-methods cls))
+                        (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
+                        ifaces))]
+            (emit-accept cw outname base impl m))
+          (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
