@@ -21,13 +21,15 @@
 (classy/defsubclass Ex1 [Exception [^String msg]] []
   ::classy/extensible? true
   clojure.lang.IExceptionInfo
-  (getData [_] {:foo :bar})
+  (getData [_] 
+    {:foo :bar})
   (getMessage [_] "ex1 message"))
 
 (classy/defsubclass Ex2 [Ex1 [^String msg]] []
   ::classy/extensible? true
   (getMessage [_]
-    (str "ex2 message; " (classy/super-call (.getMessage _)))))
+    (str "ex2 message; " 
+      (classy/super-call (.getMessage _)))))
 
 (classy/defsubclass Ex3 [Ex2 [^String msg]] []
   (getMessage [_]

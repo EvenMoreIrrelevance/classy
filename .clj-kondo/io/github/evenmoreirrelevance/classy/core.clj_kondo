@@ -7,7 +7,10 @@
 
 (defmacro defsubclass [name [cls & ctor-specs] fields & deftype-syntax]
   `(do
-     ~cls
-     (deftype ~name ~fields ~@deftype-syntax)
-     (def ~(symbol (str "->" name)) nil)
-     ~name))
+    (deftype ~name ~fields ~@deftype-syntax)
+    ~@(when (seq ctor-specs)
+        `[(defn ~(symbol (str "->" name))
+            ~@(for [spc ctor-specs]
+                `([~@fields ~@spc] (new ~cls ~@spc))))])
+    ~cls
+    ~name))

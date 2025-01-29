@@ -31,7 +31,7 @@
   (b/write-pom (conj (jar-opts {}) {:target "." :class-dir nil})))
 
 (defn export-kondo [_]
-  (let [postfix (str (str/replace (namespace lib) \. \/) "/")]
+  (let [postfix (str (str/replace (namespace lib) \. \/) "/" (name lib) "/")]
     (b/copy-dir {:src-dirs [(str ".clj-kondo/" postfix)]
                  :target-dir (str "resources/clj-kondo.exports/" postfix)})))
 
