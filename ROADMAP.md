@@ -1,5 +1,6 @@
 ## Support for annotations
-Like in `deftype`. It's very doable for class and methods and achievable for the immutable fields as well, but likely not for the private, mutable fields unless we go through the route of recompilation.
+Like in `deftype`. Given that `deftype` methods don't actually get annotations, all we need is annotations
+on the class and on the fields.
 
 ## AOT
 All bytecode compilation already happens as a side effect of macro-expansion (common practice in Clojure code that defines classes), so we should be safe in that regard. However due to how helper class caching currently works, there is a scenario where one could AOT compile an `instance` of `Foo` + `IBar`, load the repl, and subsequently define another; this would result in two classes with the same name, though of course with different loaders. We limit the scenario to the likelihood of a UUID collision by appending a random salt to the helper class names.

@@ -26,16 +26,35 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
       (throw (ex-info "not an interface" {:sym sym :resolved-val r}))
       :else r)))
 
+(defn ^:private fd-spec-private?
+  [fd-spec]
+  (or 
+    (contains? (meta fd-spec) :unsynchronized-mutable)
+    (contains? (meta fd-spec) :volatile-mutable)))
+
+; we need the spec here because memoization
+(defn fd-sym->field-spec
+  [fd-sym]
+  {:name (munge (name fd-sym))
+   :type (or (util/whenp .isPrimitive (util/type-of (:tag (meta fd-sym)))) Object)
+   :meta (meta fd-sym) ; we need the symbol's meta as real data or we lose the field's annotations
+   :private? (some #(contains? (meta fd-sym) %) [:unsynchronized-mutable :volatile-mutable])})
+
 (defn ^:private impl-body
-  [^Class base [name_ [self & args] & body]]
-  (let [sig-args (map #(with-meta %1 (meta %2))
+  [^Class base fd-specs [name_ [self & args] & body]]
+  (let [self_ (gensym "self_")
+        sig-args (map #(with-meta %1 (meta %2))
                    (repeatedly #(gensym "arg_"))
                    args)
         hinted? (some #(:tag (meta %)) args)]
     `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
-      [~'EMI_in_impl_body ~(cond-> self hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
-      (loop [~@(interleave args sig-args)]
-        ~@body))))
+      [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
+      (let [~@(apply concat
+                (for [fd (remove fd-spec-private? fd-specs)]
+                  `[~fd (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
+            ~self ~self_]
+        (loop [~@(interleave args sig-args)]
+          ~@body)))))
 
 (defmacro instance "
 Evaluates to an instance of `supcls` initialized with `ctor-args`, 
@@ -53,17 +72,17 @@ Note that the class of the output is left unspecified, so it mustn't be relied u
         body (apply concat raw-body)
         supcls_ (resolve supcls)
         ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
-        supers [supcls_ ifaces]
-        base (compile/supers->subcls-base supers)
-        impl (compile/supers->impl supers)
-        shell (compile/supers->shell supers)
+        stub-desc [supcls_ ifaces]
+        base (compile/subcls-stub stub-desc)
+        impl (compile/overrides-impl stub-desc)
+        shell (compile/instance-shell stub-desc)
         output `(new
                   ~(symbol (.getName shell))
                   (reify
                     ~@(apply concat opts)
                     ~(symbol (.getName impl))
                     ~@(sequence
-                        (comp (filter seq?) (map (partial impl-body base)))
+                        (comp (filter seq?) (map (partial impl-body base [])))
                         body))
                   ~@ctor-args)]
     output))
@@ -77,24 +96,23 @@ will be defined as well which forwards to the appropriate ctor; it is recommende
 if none are listed, a custom ctor fn is still defined for the sake of repl-friendliness.
 
 Unlike -say- a Proxy output, the output class can be inherited from with no friction if the 
-::extensible? option is specified to be truthy; however, it's still discouraged.
-Note that unlike in `deftype` the fields are not accessible from the instance,
-effectively being private to it."
+::extensible? option is specified to be truthy; however, it's still discouraged."
   {:clj-kondo/ignore [:redefined-var]}
   [relname [supcls & ctor-fn-targets] fields & opts+specs]
   (let [[raw-opts raw-specs] (->> opts+specs
-                              (partition-all 2)
-                              (map vec)
-                              (split-with #(keyword? (% 0))))
+                               (partition-all 2)
+                               (map vec)
+                               (split-with #(keyword? (% 0))))
+        {privates true publics false} (group-by fd-spec-private? fields)
         {:keys [::extensible?] :as opts} (into {} raw-opts)
         specs (apply concat raw-specs)
         absname (str (namespace-munge *ns*) "." relname)
         implname (str "_EMI_real_impl$" relname)
         supcls_ (resolve supcls)
         ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) specs)
-        supers [supcls_ ifaces]
-        base (compile/supers->subcls-base supers)
-        impl (compile/supers->impl supers)
+        stub-desc [supcls_ ifaces (mapv fd-sym->field-spec publics)]
+        base (compile/subcls-stub stub-desc)
+        impl (compile/overrides-impl stub-desc)
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
     (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
@@ -108,13 +126,17 @@ effectively being private to it."
     (let [real-impl
           (eval ;;we need the real impl at compile-time
             `(deftype ~(vary-meta (symbol implname) assoc :private true :no-doc true)
-               ~fields
+               [~@privates]
                ~@(apply concat (dissoc opts ::extensible?))
                ~(symbol (.getName impl))
                ~@(sequence
-                   (comp (filter seq?) (map (partial impl-body base)))
+                   (comp (filter seq?) (map (partial impl-body base publics)))
                    specs)))]
-      (compile/emit-defsubtype-class [supcls_ ifaces absname] real-impl extensible?)
+      (compile/defsubtype-cls
+        {:stub-desc stub-desc
+         :outname absname
+         :real-impl real-impl
+         :extensible? extensible?})
       `(do
          (import '~(symbol absname))
          ~@(when (seq ctor-fn-targets)
@@ -122,7 +144,7 @@ effectively being private to it."
                  ~@(for [s short-specs]
                      `([~@(map #(vary-meta % dissoc :tag) (concat fields s))]
                        (new ~(symbol absname)
-                         ~@fields
+                         ~@(concat privates publics) ; privates go into the impl, publics into the stub
                          ~@s)))
                  ~@(when (seq long-specs)
                      (let [head-args (repeatedly 19 #(gensym "arg"))
@@ -136,7 +158,7 @@ effectively being private to it."
                                   `(let [~@(interleave (concat fields s) head-args)
                                          [~@(drop (count head-args) (concat fields s))] ~rest-arg]
                                      (new ~(symbol absname)
-                                       ~@fields
+                                       ~@(concat privates publics)
                                        ~@s))]))
                            (throw (java.lang.IllegalArgumentException.
                                     (str "bad arity:" (+ 19 (count ~rest-arg))))))))))])

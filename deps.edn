@@ -1,6 +1,6 @@
 {:io.github.evenmoreirrelevance/libdesc
  {:lib io.github.evenmoreirrelevance/classy
-  :mvn/version "0.0.5-alpha5"}
+  :mvn/version "0.0.6-alpha1"}
 
  :deps
  {org.clojure/clojure {:mvn/version "1.11.4"}}

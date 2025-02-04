@@ -17,8 +17,7 @@
         @(classy/instance (java.util.ArrayList [3])
            (^objects toArray [self ^objects x] (classy/super-call (.toArray self x)))
            clojure.lang.IDeref
-           (deref [_]
-             (dec (classy/super-call (.size _))))))))
+           (deref [_] (dec (classy/super-call (.size _))))))))
   (test/testing "closures"
     (let [a 3]
       (test/is

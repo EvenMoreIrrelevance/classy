@@ -47,9 +47,9 @@
     (let [e1 ^Ex1 (->Ex1 "hi")
           e2 ^Ex1 (->Ex2 "hello")
           e3 ^Ex1 (->Ex3 "bonjour")]
-      (test/is (= (.getMessage e1) "ex1 message"))
-      (test/is (= (.getData e1) (.getData e2) {:foo :bar}))
-      (test/is (= (.getMessage e2) (.getMessage e3) "ex2 message; ex1 message"))))
+      [(test/is (= (.getMessage e1) "ex1 message"))
+       (test/is (= (.getData e1) (.getData e2) {:foo :bar}))
+       (test/is (= (.getMessage e2) (.getMessage e3) "ex2 message; ex1 message"))]))
   (test/testing "big fat e2e test"
     (eval
       '(classy/defsubclass MapStackIterator [Object []]
@@ -172,9 +172,9 @@
       (let [beanie_ (beanie :lmao)
             bean_ (bean :lmao)
             normal_ (into {} beanie_)]
-        (test/is (= beanie_ bean_) "bean and beanie equal")
-        (test/is (= (assoc beanie_ 1 3) (assoc normal_ 1 3)) "beanie equal to normal after assoc")
-        (test/is (= (dissoc beanie_ :name) (dissoc bean_ :name)) "dissoc test")))))
+        [(test/is (= beanie_ bean_) "bean and beanie equal")
+         (test/is (= (assoc beanie_ 1 3) (assoc normal_ 1 3)) "beanie equal to normal after assoc")
+         (test/is (= (dissoc beanie_ :name) (dissoc bean_ :name)) "dissoc test")]))))
 
 (comment 
   (test/run-tests)

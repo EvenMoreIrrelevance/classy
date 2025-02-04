@@ -12,12 +12,12 @@
    (load-and-compile nil cname bytecode))
   ([^java.util.List *loaders cname bytecode]
    (locking (or *loaders (Object.))
-     (let [loader 
+     (let [loader
            (or (first
-                (drop-while
-                 #(try (Class/forName % false cname) (catch ClassNotFoundException _ nil))
-                 *loaders))
-               (doto (clojure.lang.DynamicClassLoader.) (cond->> *loaders (.add *loaders))))
+                 (drop-while
+                   #(try (Class/forName % false cname) (catch ClassNotFoundException _ nil))
+                   *loaders))
+             (doto (clojure.lang.DynamicClassLoader.) (cond->> *loaders (.add *loaders))))
            cls
            (.defineClass ^clojure.lang.DynamicClassLoader loader cname bytecode nil)]
        (when *compile-files* (Compiler/writeClassFile (dots2slashes cname) bytecode))
@@ -26,7 +26,7 @@
 (defn map-by
   ([kf xs]
    (map-by kf identity xs))
-  ([kf vf xs] 
+  ([kf vf xs]
    (map-by {} kf vf xs))
   ([empty kf vf xs]
    (let [empty (or empty {})]
@@ -44,26 +44,44 @@
      (let [!place (volatile! (transient {}))]
        (fn reducer
          ([] (rf))
-         ([out] 
+         ([out]
           (vreset! !place (transient {}))
           (rf out))
          ([acc in]
           (let [place @!place
-                k (kf in)] 
+                k (kf in)]
             (if (get place k)
               acc
               (do (vreset! !place (assoc! place k true))
-                  (rf acc in))))))))))
+                (rf acc in))))))))))
 
-(defmacro the [tag expr]
+(defmacro the
+  [tag expr]
   (let [x_ (with-meta (gensym expr) {:tag tag})]
     `(let [~x_ ~expr] ~x_)))
+
+(defmacro type-of%%
+  [sym]
+  (let [b (the clojure.lang.Compiler$LocalBinding (get &env sym))]
+    (or
+      (.getPrimitiveType b)
+      (.getJavaClass b)
+      nil)))
+
+(defmacro type-of%
+  [tag]
+  `(let [x# (the ~tag nil)]
+     (type-of%% x#)))
+
+(defn type-of
+  (^Class [tag]
+   (eval `(type-of% ~tag))))
 
 (defmacro throw-when [[bind expr] msg map]
   `(when-let [~bind ~expr]
      (throw (ex-info ~msg ~map))))
 
-(defn is? 
+(defn is?
   {:inline (fn [p x] `(~p ~x))}
   [p x] (p x))
 

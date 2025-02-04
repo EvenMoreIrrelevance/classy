@@ -6,6 +6,7 @@
    (clojure.asm
      ClassWriter
      FieldVisitor
+     ClassVisitor
      Opcodes
      Type)
    (clojure.asm.commons GeneratorAdapter)
@@ -78,12 +79,14 @@
 (defn field-insn [^GeneratorAdapter ga opcode {:keys [owner-iname name type-desc]}]
   (.visitFieldInsn ga opcode owner-iname name type-desc))
 
-(defn visit-field ^FieldVisitor [^ClassWriter cw access {:keys [init name type-desc signature]}]
-  (.visitField cw access name type-desc signature init))
-(defn visit-method ^GeneratorAdapter
-  [^ClassWriter cw access {:keys [name param-types return-type signature thrown]}]
-  (let [desc (Type/getMethodDescriptor return-type param-types)]
-    (GeneratorAdapter. (.visitMethod ^ClassWriter cw access name desc signature thrown) access name desc)))
+(defn visit-field 
+  (^FieldVisitor [^ClassVisitor cw access {:keys [init name type-desc signature]}]
+   (.visitField cw access name type-desc signature init)))
+(defn visit-method 
+  (^GeneratorAdapter [^ClassVisitor cw access {:keys [name param-types return-type signature thrown]}]
+   (let [desc (Type/getMethodDescriptor return-type param-types)]
+     (GeneratorAdapter.
+       (.visitMethod ^ClassVisitor cw access name desc signature thrown) access name desc))))
 (defn emit-wrapping-ctor* [cw acc ctor_ args body*]
   (doto (visit-method cw acc (update ctor_ :param-types #(prepend-args args %)))
     (body*)
@@ -132,35 +135,53 @@
 (def this-ns *ns*)
 
 ; to limit the scenario described in the roadmap.
-(defonce salt (str/replace (.toString (java.util.UUID/randomUUID)) "-" ""))
 
-(defn supers->name
-  [[^Class supcls ifaces]]
-  (str/join "$"
-    (concat
-      (cons (.getName supcls) (sort (map #(.getName ^Class %) ifaces)))
-      [salt])))
+(let [salt (delay (str/replace (.toString (java.util.UUID/randomUUID)) "-" ""))]
+  (defonce unique-suffix (fn [] (str @salt (gensym "$")))))
 
-(def ^Class supers->subcls-base
+(defn emit-accept
+  [cw base ^Class impl impl-fd m]
+  (let [m_ (method {:reflected m})
+        impl-m_ (util/updates (method {:reflected m :owner impl})
+                  :name #(str impl-prefix %)
+                  :param-types #(prepend-args [base] %))]
+    (doto (visit-method cw
+            (flags (if (Modifier/isPublic (modifiers m)) Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))
+            m_) (.visitCode)
+      (.loadThis)
+      (field-insn Opcodes/GETFIELD impl-fd)
+
+      (.loadThis) (.loadArgs)
+      (method-insn (if (.isInterface impl) Opcodes/INVOKEINTERFACE Opcodes/INVOKEVIRTUAL)
+        impl-m_)
+      (.returnValue) (.endMethod))))
+
+(def ^Class subcls-stub
   (memoize
-    (fn [[^Class supcls ifaces :as supers]]
-      (let [out-name (str (namespace-munge this-ns) "._subclsbase$" (supers->name supers))
-            cw (->cw 
-                 Opcodes/ACC_PUBLIC
-                 (util/dots2slashes out-name) nil
-                 (internal-name supcls) (into-array String (map internal-name ifaces)))]
+    (fn [[^Class supcls ifaces pub-fd-specs :as _stub-desc]]
+      (let [outname
+            (str (namespace-munge this-ns) "._subcls_stub$" (unique-suffix))
+            pub-fields
+            (mapv #(field (assoc % :owner outname)) pub-fd-specs)
+            cw 
+            (->cw
+              Opcodes/ACC_PUBLIC
+              (util/dots2slashes outname) nil
+              (internal-name supcls) (into-array String (map internal-name ifaces)))]
+        ; emit public fields
+        (doseq [fd pub-fields]
+          (.visitEnd (visit-field cw (flags Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) fd)))
         ; we do something akin to:
         ; private void _super_foo(int x) { super.foo(x); }
         ; static void super_foo(FooBase self, int x) { return self._super_foo(x); }
         ; in order to get a publicly-callable and non-virtual accessor to the super method 
         (doseq [^Executable m (overridable-methods supcls)
                 :let [m_ (method {:reflected m :owner supcls})
-                      sup_
-                      (update (method {:reflected m :owner out-name})
-                        :name #(str "_" super-prefix %))
+                      sup_ (update (method {:reflected m :owner outname})
+                             :name #(str "_" super-prefix %))
                       stat_ (util/updates m_
                               :name #(str super-prefix %)
-                              :param-types #(prepend-args [out-name] %))]]
+                              :param-types #(prepend-args [outname] %))]]
           (doto (visit-method cw Opcodes/ACC_PRIVATE sup_) (.visitCode)
             (.loadThis) (.loadArgs)
             (method-insn Opcodes/INVOKESPECIAL m_)
@@ -172,17 +193,25 @@
         (doseq [ctor (or
                        (seq (map #(do {:reflected %}) (.getConstructors supcls)))
                        [{:name "<init>" :params [] :return Void/TYPE :owner supcls}])]
-          (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC (method ctor) []))
-        (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
+          (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC (method ctor) (map :type pub-fields)
+            (as-> ga
+              (doseq [[i fd] (map vector (range) pub-fields)]
+                (.loadThis ga) (.loadArg ga i)
+                (field-insn ga Opcodes/PUTFIELD fd)))))
+        (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
 
 (comment
-  (.getMethods (supers->subcls-base [java.util.ArrayList #{}])))
+  (let [example (subcls-stub [java.util.ArrayList #{} [{:type Integer/TYPE :name "a"}]])]
+    [(.getMethods example)
+     (.getConstructors example)
+     (.getFields example)])
+  )
 
-(def ^Class supers->impl
+(def ^Class overrides-impl
   (memoize
-    (fn [[^Class supcls ifaces :as args]]
-      (let [out-name (str (namespace-munge this-ns) "._impl$" (supers->name args))
-            subcls-base (supers->subcls-base args)
+    (fn [[^Class supcls ifaces _pub-fd-specs :as args]]
+      (let [out-name (str (namespace-munge this-ns) "._impl$" (unique-suffix))
+            subcls-base (subcls-stub args)
             cw (->cw
                  (flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
                  (util/dots2slashes out-name) nil
@@ -207,39 +236,22 @@
                           (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
                           (util/updates m_
                             :name #(str mname-prefix %)
-                            :param-types #(prepend-args [subcls-base] %))) (.visitCode)
+                            :param-types #(prepend-args [subcls-base] %)))
                     (as-> mw
                       (when super-impl?
-                        (doto mw (.loadArgs)
+                        (doto mw
+                          (.visitCode) (.loadArgs)
                           (method-insn Opcodes/INVOKESTATIC stat_)
-                          (.returnValue)
-                          (.endMethod))))
+                          (.returnValue) (.endMethod))))
                     (.visitEnd)))]
             (emit-visit super-prefix)
             (emit-visit impl-prefix)))
         (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
 
-(defn emit-accept
-  [cw base ^Class impl impl-fd m]
-  (let [m_ (method {:reflected m})
-        impl-m_ (util/updates (method {:reflected m :owner impl})
-                  :name #(str impl-prefix %)
-                  :param-types #(prepend-args [base] %))]
-    (doto (visit-method cw
-            (flags (if (Modifier/isPublic (modifiers m)) Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))
-            m_) (.visitCode)
-      (.loadThis)
-      (field-insn Opcodes/GETFIELD impl-fd)
-
-      (.loadThis) (.loadArgs)
-      (method-insn (if (.isInterface impl) Opcodes/INVOKEINTERFACE Opcodes/INVOKEVIRTUAL)
-        impl-m_)
-      (.returnValue) (.endMethod))))
-
-(defn ^Class emit-defsubtype-class
-  [[cls ifaces outname] ^Class real-impl extensible?]
+(defn ^Class defsubtype-cls
+  [{[cls ifaces pub-fd-specs] :stub-desc :keys [outname real-impl extensible?]}]
   (let [base
-        (supers->subcls-base [cls ifaces])
+        (subcls-stub [cls ifaces pub-fd-specs])
         impl-ctor_
         (let [[f & m :as all] (.getConstructors real-impl)]
           (util/throw-when [_ (seq m)] 
@@ -250,7 +262,8 @@
           (flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL)) 
           (util/dots2slashes outname) nil 
           (internal-name base) (into-array String (map #(internal-name %) ifaces)))
-        impl-fd (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})]
+        impl-fd 
+        (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})]
     (doto (visit-field cw Opcodes/ACC_PRIVATE impl-fd)
       (.visitEnd))
     (doseq [se-ctor (.getConstructors base)
@@ -267,14 +280,14 @@
       (emit-accept cw base real-impl impl-fd m))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
-(def ^Class supers->shell
+(def ^Class instance-shell
   (memoize
-    (fn [[^Class cls ifaces :as supers]]
-      (let [outname (str (namespace-munge this-ns) "._shell$" (supers->name [cls ifaces]))
-            impl (supers->impl supers)
-            base (supers->subcls-base supers)
+    (fn [[^Class cls ifaces :as stub-desc]]
+      (let [outname (str (namespace-munge this-ns) "._shell$" (unique-suffix))
+            impl (overrides-impl stub-desc)
+            base (subcls-stub stub-desc)
             cw (->cw
-                 Opcodes/ACC_PUBLIC 
+                 Opcodes/ACC_PUBLIC
                  (util/dots2slashes outname) nil 
                  (internal-name base) (into-array String (map #(internal-name ^Class %) ifaces)))
             impl-fd (field {:owner outname :name (name (gensym impl-prefix)) :type impl})]
