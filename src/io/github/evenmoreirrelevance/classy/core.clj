@@ -136,7 +136,8 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
         {:stub-desc stub-desc
          :outname absname
          :real-impl real-impl
-         :extensible? extensible?})
+         :extensible? extensible?
+         :priv-fd-specs (mapv fd-sym->field-spec privates)})
       `(do
          (import '~(symbol absname))
          ~@(when (seq ctor-fn-targets)

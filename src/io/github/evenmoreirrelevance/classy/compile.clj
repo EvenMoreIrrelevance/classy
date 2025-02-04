@@ -140,7 +140,7 @@
   (defonce unique-suffix (fn [] (str @salt (gensym "$")))))
 
 (defn emit-accept
-  [cw base ^Class impl impl-fd m]
+  [cw base ^Class impl get-impl-fd impl-fd m]
   (let [m_ (method {:reflected m})
         impl-m_ (util/updates (method {:reflected m :owner impl})
                   :name #(str impl-prefix %)
@@ -149,7 +149,7 @@
             (flags (if (Modifier/isPublic (modifiers m)) Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))
             m_) (.visitCode)
       (.loadThis)
-      (field-insn Opcodes/GETFIELD impl-fd)
+      (field-insn get-impl-fd impl-fd)
 
       (.loadThis) (.loadArgs)
       (method-insn (if (.isInterface impl) Opcodes/INVOKEINTERFACE Opcodes/INVOKEVIRTUAL)
@@ -249,35 +249,51 @@
         (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
 
 (defn ^Class defsubtype-cls
-  [{[cls ifaces pub-fd-specs] :stub-desc :keys [outname real-impl extensible?]}]
+  [{[cls ifaces pub-fd-specs] :stub-desc :keys [outname ^Class real-impl extensible? priv-fd-specs]}]
   (let [base
         (subcls-stub [cls ifaces pub-fd-specs])
+        impl-stateless?
+        (= 0 (count priv-fd-specs))
         impl-ctor_
         (let [[f & m :as all] (.getConstructors real-impl)]
-          (util/throw-when [_ (seq m)] 
+          (util/throw-when [_ (seq m)]
             "impl must have exactly one ctor" {:impl real-impl :found (count all)})
           (method {:reflected f}))
         cw
         (->cw
-          (flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL)) 
-          (util/dots2slashes outname) nil 
+          (flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
+          (util/dots2slashes outname) nil
           (internal-name base) (into-array String (map #(internal-name %) ifaces)))
-        impl-fd 
+        impl-fd
         (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})]
-    (doto (visit-field cw Opcodes/ACC_PRIVATE impl-fd)
+    (doto (visit-field cw 
+            (flags Opcodes/ACC_PRIVATE (when impl-stateless? Opcodes/ACC_STATIC)) 
+            impl-fd)
       (.visitEnd))
+    (when impl-stateless?
+      (doto (visit-method cw (flags Opcodes/ACC_PRIVATE Opcodes/ACC_STATIC)
+              (method {:name "<clinit>" :params [] :return Void/TYPE :owner outname}))
+        (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
+        (.dup) (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
+        (field-insn Opcodes/PUTSTATIC impl-fd)
+        (.returnValue) (.endMethod)))
     (doseq [se-ctor (.getConstructors base)
             :let [se-ctor_ (method {:reflected se-ctor})]]
-      (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ (:param-types impl-ctor_)
-        (.loadThis) (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
-        (.dup) (.loadArgs 0 (count (:param-types impl-ctor_)))
-        (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
-        (field-insn Opcodes/PUTFIELD impl-fd)))
+      (if impl-stateless?
+        (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ [])
+        (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ (:param-types impl-ctor_)
+          (.loadThis) (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
+          (.dup) (.loadArgs 0 (count (:param-types impl-ctor_)))
+          (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
+          (field-insn Opcodes/PUTFIELD impl-fd))))
     (doseq [m (util/distinct-by method-sig
                 (into (vec (overridable-methods cls))
                   (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
                   ifaces))]
-      (emit-accept cw base real-impl impl-fd m))
+      (emit-accept cw 
+        base real-impl 
+        (if impl-stateless? Opcodes/GETSTATIC Opcodes/GETFIELD) impl-fd 
+        m))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
 (def ^Class instance-shell
@@ -303,5 +319,5 @@
                     (into (vec (overridable-methods cls))
                       (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
                       ifaces))]
-          (emit-accept cw base impl impl-fd m))
+          (emit-accept cw base impl Opcodes/GETFIELD impl-fd m))
         (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
