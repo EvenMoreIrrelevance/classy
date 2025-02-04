@@ -1,6 +1,7 @@
 (ns ^:no-doc io.github.evenmoreirrelevance.classy.util
   (:require
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [io.github.evenmoreirrelevance.classy.util :as util]))
 
 (defn dots2slashes
   [s]
@@ -61,3 +62,33 @@
 (defmacro throw-when [[bind expr] msg map]
   `(when-let [~bind ~expr]
      (throw (ex-info ~msg ~map))))
+
+(defn is? 
+  {:inline (fn [p x] `(~p ~x))}
+  [p x] (p x))
+
+(defmacro condctx
+  ([] nil)
+  ([x] x)
+  ([l r & more]
+   (if (keyword? l)
+     `(~(symbol l) ~r (condctx ~@more))
+     `(if ~l ~r (condctx ~@more)))))
+
+(defn whenp
+  {:inline (fn [p x] `(let [x# ~x] (when x# (when (~p x#) x#))))}
+  [p x] (when x (when (p x) x)))
+
+(defn updates
+  ([m] m)
+  ([m k f & more] (apply updates (update m k f) more)))
+
+(defn assoc-some
+  ([m] m)
+  ([m k v & more] (apply assoc-some (cond-> m (some? v) (assoc k v)) more)))
+
+(defn require-keys!
+  [m keys]
+  (util/throw-when [missing (seq (remove #(contains? m %) keys))]
+    "some keys missing in map" {:map m :missing missing})
+  m)

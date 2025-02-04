@@ -1,6 +1,10 @@
 {:hooks
  {:macroexpand
-  {io.github.evenmoreirrelevance.classy.util/throw-when io.github.evenmoreirrelevance.classy.util/throw-when
+  {; public
+   io.github.evenmoreirrelevance.classy.util/throw-when io.github.evenmoreirrelevance.classy.util/throw-when
    io.github.evenmoreirrelevance.classy.core/instance io.github.evenmoreirrelevance.classy.core/instance 
    io.github.evenmoreirrelevance.classy.core/defsubclass io.github.evenmoreirrelevance.classy.core/defsubclass
-   io.github.evenmoreirrelevance.classy.core/multidef io.github.evenmoreirrelevance.classy.core/multidef}}}
+   ; util
+   io.github.evenmoreirrelevance.classy.util/condctx io.github.evenmoreirrelevance.classy.util/condctx
+   ;internal
+   io.github.evenmoreirrelevance.classy.compile/emit-wrapping-ctor io.github.evenmoreirrelevance.classy.compile/emit-wrapping-ctor}}}

@@ -3,3 +3,11 @@
 (defmacro throw-when [[bind expr] msg map]
   `(when-let [~bind ~expr]
      (throw (ex-info ~msg ~map))))
+
+(defmacro condctx
+  ([] nil)
+  ([x] x)
+  ([l r & more]
+   (if (keyword? l)
+     `(~(symbol l) ~r (condctx ~@more))
+     `(if ~l ~r (condctx ~@more)))))

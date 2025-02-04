@@ -1,0 +1,5 @@
+(ns io.github.evenmoreirrelevance.classy.compile)
+
+(defmacro emit-wrapping-ctor [cw acc ctor_ args & body]
+  `(io.github.evenmoreirrelevance.classy.compile/emit-wrapping-ctor* 
+     ~cw ~acc ~ctor_ ~args (fn [_ga#] (doto _ga# ~@body))))
