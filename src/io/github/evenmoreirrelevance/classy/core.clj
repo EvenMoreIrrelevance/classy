@@ -17,18 +17,20 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
 
 (defn ^:private impl-body
   [^Class base fd-specs [name_ [self & args] & body]]
-  (let [self_ (gensym "self_")
-        sig-args (map #(with-meta %1 (meta %2))
-                   (repeatedly #(gensym "arg_"))
-                   args)
-        hinted? (some #(:tag (meta %)) args)]
+  (let [dehint-prim #(vary-meta % update :tag
+                       (fn [t]
+                         (when-not (some-> (util/type-of t) (.isPrimitive))
+                           t)))
+        self_ (gensym "self_")
+        hinted? (some #(:tag (meta %)) args)
+        sig-args (map #(with-meta %1 (meta %2)) (repeatedly #(gensym "arg_")) args)]
     `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
       [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
       (let [~@(apply concat
                 (for [fd fd-specs]
-                  `[~fd (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
+                  `[~(dehint-prim fd) (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
             ~self ~self_]
-        (loop [~@(interleave args sig-args)]
+        (loop [~@(interleave (map dehint-prim args) sig-args)]
           ~@body)))))
 
 (defmacro instance "
@@ -74,7 +76,7 @@ if none are listed, a custom ctor fn is still defined for the sake of repl-frien
 
 Unlike -say- a Proxy output, the output class can be inherited from with no friction if the 
 ::extensible? option is specified to be truthy; however, it's still discouraged."
-  {:clj-kondo/ignore [:redefined-var]}
+  {:clj-kondo/ignore [:redefined-var :inline-def]}
   [relname [base & ctor-fn-targets] fields & opts+specs]
   (let [[raw-opts raw-specs] (->> opts+specs
                                (partition-all 2)

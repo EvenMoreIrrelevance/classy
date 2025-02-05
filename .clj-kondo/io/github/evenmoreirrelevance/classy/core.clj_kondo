@@ -11,6 +11,6 @@
     ~@(when (seq ctor-specs)
         `[(defn ~(symbol (str "->" name))
             ~@(for [spc ctor-specs]
-                `([~@fields ~@spc] (new ~cls ~@spc))))])
+                `([~@fields ~@spc] (new ~cls ~@fields ~@spc))))])
     ~cls
     ~name))

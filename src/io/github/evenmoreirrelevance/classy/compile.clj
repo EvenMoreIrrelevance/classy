@@ -252,7 +252,7 @@
              (.loadThis)
              (field-insn Opcodes/GETFIELD impl-fd)))]
     (@Compiler/ADD_ANNOTATIONS cw cls-anns)
-    #_"emit field and <clinit> if stateless" 
+    #_"emit field and <clinit> if stateless"
     (.visitEnd
       (emit-field cw
         (util/flags Opcodes/ACC_PRIVATE (when impl-stateless? Opcodes/ACC_STATIC))
@@ -263,7 +263,7 @@
         (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
         (.dup) (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
         (field-insn Opcodes/PUTSTATIC impl-fd)
-        (.returnValue) (.endMethod))) 
+        (.returnValue) (.endMethod)))
     #_"wrap all ctors"
     (doseq [se-ctor (.getConstructors stub)
             :let [se-ctor_ (method {:reflected se-ctor})]]
@@ -286,11 +286,11 @@
             mw (emit-method cw
                  (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
                  m_)]
-        (doseq [[i ann] (map vector (range) annots)] 
+        (doseq [[i ann] (map vector (range) annots)]
           (@Compiler/ADD_ANNOTATIONS mw ann i))
         (doto mw
           (.visitCode)
-          (get-impl-fd) (.loadThis) (.loadArgs) 
+          (get-impl-fd) (.loadThis) (.loadArgs)
           (method-insn Opcodes/INVOKEVIRTUAL impl-m_)
           (.returnValue) (.endMethod))))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))

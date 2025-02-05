@@ -2,7 +2,8 @@
   (:require [clojure.tools.build.api :as b]
             [deps-deploy.deps-deploy :as deps-deploy]
             [clojure.string :as str]
-            [clojure.edn :as edn]))
+            [clojure.edn :as edn]
+            [clojure.test :as test]))
 
 (let [deps-edn (edn/read-string (slurp "deps.edn"))]
   (def lib (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :lib]))
@@ -76,7 +77,7 @@
      res)))
 
 (defn deploy [_]
-  (let [b (with-out-str (runit {:input *out*} ["git" "rev-parse" "--abbrev-ref" "HEAD"]))]
+  (let [b (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"]))]
     (when-not (= b "main")
       (throw (ex-info "must be on main branch" {:branch b}))))
   (when-not (and 
@@ -84,7 +85,7 @@
               (= 0 (runit ["git" "diff-files" "--quiet"])))
     (throw (ex-info "worktree or index not clean" {})))
   (let [tag (str "v" version)]
-    (when (= tag (with-out-str (runit {:input *out*} ["git" "tag" "--list" tag])))
+    (when (= tag (with-out-str (runit ["git" "tag" "--list" tag])))
       (throw (ex-info "version already tagged" {:version version})))
     (jar _)
     (when-not (and
@@ -98,7 +99,17 @@
        :installer :remote
        :sign-releases? false})))
 
+(defn test-all
+  [_]
+  (let [test-files (filter #(str/ends-with? % ".clj")
+                     (map str
+                       (file-seq (java.io.File. "test/"))))]
+    (run! #(load-file %) test-files)
+    (test/run-all-tests)))
+
+
 (comment
+  (test-all nil)
   (jar nil)
   (deploy nil)
   )

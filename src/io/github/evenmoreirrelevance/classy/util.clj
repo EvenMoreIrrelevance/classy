@@ -127,8 +127,6 @@
     Member (.getModifiers ^Member x)
     Class (.getModifiers ^Class x)))
 
-memoize
-
 (defn locking-memo
   ([f] 
     (locking-memo identity f))
@@ -143,5 +141,16 @@ memoize
            (val e)
            (locking cache
              (if-let [e (find @cache k)]
-               (val e)
+               (val e) 
                (doto (apply f args) (->> (swap! cache assoc k)))))))))))
+
+(defmacro evals-in-ns
+  [& expr]
+  `(binding [*ns* ~*ns*]
+     (do ~@(for [e expr] `(eval '~e)))))
+
+(defmacro throwing? 
+  [cls & frms]
+  `(try (do ~@frms false)
+     (catch ~cls _# true)
+     (catch Throwable _# false)))

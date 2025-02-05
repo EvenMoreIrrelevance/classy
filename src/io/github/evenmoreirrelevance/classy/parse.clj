@@ -58,6 +58,13 @@
       (throw (ex-info "not an interface" {:sym sym :resolved-val r}))
       :else r)))
 
+(defn parse-class
+  [sym]
+  (let [r (resolve sym)]
+    (util/throw-when [_ (not (class? r))]
+      "Couldn't parse class" {:sym sym :resolved-val r})
+    r))
+
 (defn overrideable?
   [^Method x]
   (let [mods (util/modifiers x)]
@@ -72,8 +79,8 @@
 
 (defn parse-extension-form
   [{:keys [base-sym body fields]}]
-  (let [base (resolve base-sym)
-        ifaces (into #{} (comp (filter symbol?) (map parse-iface)) body)
+  (let [base (parse-class base-sym) 
+        ifaces (into #{} (comp (filter symbol?) (map parse-iface)) body) 
         sigs->meths (group-by #(pop (method-sig %))
                       (util/distinct-by method-sig
                         (sort-by #(if (base-method? base %) 1 0)

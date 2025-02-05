@@ -1,1 +1,1 @@
-{:config-in-call {io.github.evenmoreirrelevance.classy.core/defsubclass {:ignore [:redefined-var]}}}
+{:config-in-call {io.github.evenmoreirrelevance.classy.core/defsubclass {:ignore [:redefined-var :inline-def]}}}
