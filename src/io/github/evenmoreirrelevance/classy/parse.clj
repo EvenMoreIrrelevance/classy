@@ -96,7 +96,7 @@
   (parse-extension-form
     {:base-sym 'clojure.lang.APersistentMap
      :fields '[meta_ keys_ k->v]
-     :body 
+     :body
      '[(assoc [self k v] (.assoc (edited-map self) k v))
        (without [self k] (.without (edited-map self) k))
        (assocEx [self k v] (.assocEx (edited-map self) k v))
@@ -115,4 +115,5 @@
        (valAt [_ k d] (k->v k d))
        clojure.lang.IObj
        (meta [_] meta_)
-       (withMeta [_ newmeta] (->WrapperMap newmeta keys_ k->v))]}))
+       (withMeta [_ newmeta] (->WrapperMap newmeta keys_ k->v))]})
+  )
