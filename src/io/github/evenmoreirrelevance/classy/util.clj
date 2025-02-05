@@ -1,4 +1,5 @@
 (ns ^:no-doc io.github.evenmoreirrelevance.classy.util
+  (:import (java.lang.reflect Member))
   (:require
    [clojure.string :as str]
    [io.github.evenmoreirrelevance.classy.util :as util]))
@@ -110,3 +111,37 @@
   (util/throw-when [missing (seq (remove #(contains? m %) keys))]
     "some keys missing in map" {:map m :missing missing})
   m)
+
+(defn ^Long flags
+  {:inline (fn expand-flags
+             ([a] `(long (or ~a 0)))
+             ([a1 & args]
+              `(long (bit-or ~@(for [a (cons a1 args)] `(or ~a 0))))))}
+  ([x] (or x 0))
+  ([x y] (bit-or (or x 0) (or y 0)))
+  ([x y & more] (apply bit-or (or x 0) (or y 0) (map #(or % 0) more))))
+
+(defn modifiers
+  ^long [x]
+  (condp instance? x
+    Member (.getModifiers ^Member x)
+    Class (.getModifiers ^Class x)))
+
+memoize
+
+(defn locking-memo
+  ([f] 
+    (locking-memo identity f))
+  ([keyf f]
+  ;; unlike `memoize` which is meant for performance
+  ;; this is meant to ensure that only one version of the input is ever created,
+  ;; which is why we lock on the cache.
+   (let [cache (atom {})]
+     (fn [& args]
+       (let [k (apply keyf args)]
+         (if-let [e (find @cache k)]
+           (val e)
+           (locking cache
+             (if-let [e (find @cache k)]
+               (val e)
+               (doto (apply f args) (->> (swap! cache assoc k)))))))))))

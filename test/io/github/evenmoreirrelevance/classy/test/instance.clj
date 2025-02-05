@@ -22,9 +22,18 @@
     (let [a 3]
       (test/is
         (= a
-          (.hashCode (classy/instance (Object) (hashCode [_] a))))))))
+          (.hashCode (classy/instance (Object) (hashCode [_] a)))))))
+  (test/testing "annotations"
+    (let [example (class
+                    (classy/instance (Object)
+                      clojure.lang.ILookup
+                      (^{java.lang.Deprecated true} valAt
+                       [_ ^{java.lang.Deprecated true} k]
+                       k)))
+          m (.getMethod example "valAt" (into-array [Object]))]
+      [(test/is (instance? java.lang.Deprecated (first (.getAnnotations m))))
+       (test/is (instance? java.lang.Deprecated (ffirst (.getParameterAnnotations m))))])))
 
-(comment 
+(comment
   (test/run-tests)
   )
- 

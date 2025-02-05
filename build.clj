@@ -98,6 +98,7 @@
        :installer :remote
        :sign-releases? false})))
 
-(comment 
+(comment
   (jar nil)
-  (deploy nil))
+  (deploy nil)
+  )

@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as str]
    [io.github.evenmoreirrelevance.classy.util :as util]
+   [io.github.evenmoreirrelevance.classy.parse :as parse]
    [io.github.evenmoreirrelevance.classy.compile :as compile]))
 
 (defmacro super-call "
@@ -14,32 +15,6 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
     "super-call disallowed outside of impl bodies" {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
-(defn ^:private resolve-iface
-  [sym]
-  (let [r (resolve sym)]
-    (cond
-      (var? r)
-      (cast Class (or (:on-interface @r) (throw (ex-info "not a protocol:" {:sym sym}))))
-      (not (class? r))
-      (throw (ex-info "not a class" {:sym sym :resolved-type (class r)}))
-      (not (.isInterface ^Class r))
-      (throw (ex-info "not an interface" {:sym sym :resolved-val r}))
-      :else r)))
-
-(defn ^:private fd-spec-private?
-  [fd-spec]
-  (or 
-    (contains? (meta fd-spec) :unsynchronized-mutable)
-    (contains? (meta fd-spec) :volatile-mutable)))
-
-; we need the spec here because memoization
-(defn fd-sym->field-spec
-  [fd-sym]
-  {:name (munge (name fd-sym))
-   :type (or (util/whenp .isPrimitive (util/type-of (:tag (meta fd-sym)))) Object)
-   :meta (meta fd-sym) ; we need the symbol's meta as real data or we lose the field's annotations
-   :private? (some #(contains? (meta fd-sym) %) [:unsynchronized-mutable :volatile-mutable])})
-
 (defn ^:private impl-body
   [^Class base fd-specs [name_ [self & args] & body]]
   (let [self_ (gensym "self_")
@@ -50,7 +25,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
     `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
       [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
       (let [~@(apply concat
-                (for [fd (remove fd-spec-private? fd-specs)]
+                (for [fd fd-specs]
                   `[~fd (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
             ~self ~self_]
         (loop [~@(interleave args sig-args)]
@@ -64,18 +39,20 @@ Note that unlike in `reify`, the output instance isn't an `IObj` by default.
 
 Note that the class of the output is left unspecified, so it mustn't be relied upon."
   [[supcls & ctor-args] & reify-syntax]
-  (let [[raw-opts raw-body] (->> reify-syntax
-                              (partition-all 2)
-                              (map vec)
-                              (split-with #(keyword? (% 0))))
-        opts (into {} raw-opts)
-        body (apply concat raw-body)
-        supcls_ (resolve supcls)
-        ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) body)
-        stub-desc [supcls_ ifaces]
-        base (compile/subcls-stub stub-desc)
-        impl (compile/overrides-impl stub-desc)
-        shell (compile/instance-shell stub-desc)
+  (let [[raw-opts raw-body]
+        (->> reify-syntax
+          (partition-all 2)
+          (map vec)
+          (split-with #(keyword? (% 0))))
+        opts
+        (into {} raw-opts)
+        body
+        (apply concat raw-body)
+        parsed
+        (parse/parse-extension-form {:base-sym supcls :body body})
+        base (compile/subclass-stub parsed)
+        impl (compile/overrides-impl parsed)
+        shell (compile/instance-cls parsed)
         output `(new
                   ~(symbol (.getName shell))
                   (reify
@@ -98,21 +75,19 @@ if none are listed, a custom ctor fn is still defined for the sake of repl-frien
 Unlike -say- a Proxy output, the output class can be inherited from with no friction if the 
 ::extensible? option is specified to be truthy; however, it's still discouraged."
   {:clj-kondo/ignore [:redefined-var]}
-  [relname [supcls & ctor-fn-targets] fields & opts+specs]
+  [relname [base & ctor-fn-targets] fields & opts+specs]
   (let [[raw-opts raw-specs] (->> opts+specs
                                (partition-all 2)
                                (map vec)
                                (split-with #(keyword? (% 0))))
-        {privates true publics false} (group-by fd-spec-private? fields)
+        {privates true publics false} (group-by parse/fd-spec-private? fields)
         {:keys [::extensible?] :as opts} (into {} raw-opts)
-        specs (apply concat raw-specs)
-        absname (str (namespace-munge *ns*) "." relname)
+        body (apply concat raw-specs)
+        absname (str (namespace-munge *ns*) "." relname) 
+        stub-desc (parse/parse-extension-form {:base-sym base :body body :fields fields})
         implname (str "_EMI_real_impl$" relname)
-        supcls_ (resolve supcls)
-        ifaces (into #{} (comp (filter symbol?) (map resolve-iface)) specs)
-        stub-desc [supcls_ ifaces (mapv fd-sym->field-spec publics)]
-        base (compile/subcls-stub stub-desc)
-        impl (compile/overrides-impl stub-desc)
+        stub (compile/subclass-stub stub-desc)
+        impl (compile/overrides-impl stub-desc) 
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
     (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
@@ -130,14 +105,15 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
                ~@(apply concat (dissoc opts ::extensible?))
                ~(symbol (.getName impl))
                ~@(sequence
-                   (comp (filter seq?) (map (partial impl-body base publics)))
-                   specs)))]
+                   (comp (filter seq?) (map (partial impl-body stub publics)))
+                   body)))]
+      
       (compile/defsubtype-cls
         {:stub-desc stub-desc
          :outname absname
          :real-impl real-impl
          :extensible? extensible?
-         :priv-fd-specs (mapv fd-sym->field-spec privates)})
+         :meta (meta relname)})
       `(do
          (import '~(symbol absname))
          ~@(when (seq ctor-fn-targets)
@@ -152,8 +128,7 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
                            rest-arg (gensym "rest-arg")]
                        `([~@head-args & ~rest-arg]
                          (case (+ 19 (count ~rest-arg))
-                           ~@(apply
-                               concat
+                           ~@(apply concat
                                (for [s long-specs]
                                  [(+ (count fields) (count s))
                                   `(let [~@(interleave (concat fields s) head-args)

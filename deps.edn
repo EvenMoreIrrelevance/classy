@@ -1,13 +1,15 @@
 {:io.github.evenmoreirrelevance/libdesc
  {:lib io.github.evenmoreirrelevance/classy
-  :mvn/version "0.0.6-alpha2"}
+  :mvn/version "0.1.0-alpha1"}
 
  :deps
  {org.clojure/clojure {:mvn/version "1.11.4"}}
 
  :aliases
- {:dev
-  {:extra-deps
+ {:dev 
+  {:extra-paths 
+   ["test"]
+   :extra-deps
    {criterium/criterium {:mvn/version "0.4.6"}
     clj-kondo/clj-kondo {:mvn/version "2025.01.16"}}}
   :build

@@ -1,7 +1,8 @@
 (ns ^:no-doc io.github.evenmoreirrelevance.classy.compile
   (:require
    [clojure.string :as str]
-   [io.github.evenmoreirrelevance.classy.util :as util])
+   [io.github.evenmoreirrelevance.classy.util :as util]
+   [io.github.evenmoreirrelevance.classy.parse :as parse])
   (:import
    (clojure.asm
      ClassWriter
@@ -79,16 +80,17 @@
 (defn field-insn [^GeneratorAdapter ga opcode {:keys [owner-iname name type-desc]}]
   (.visitFieldInsn ga opcode owner-iname name type-desc))
 
-(defn visit-field 
+(defn emit-field 
   (^FieldVisitor [^ClassVisitor cw access {:keys [init name type-desc signature]}]
    (.visitField cw access name type-desc signature init)))
-(defn visit-method 
+(defn emit-method
   (^GeneratorAdapter [^ClassVisitor cw access {:keys [name param-types return-type signature thrown]}]
    (let [desc (Type/getMethodDescriptor return-type param-types)]
      (GeneratorAdapter.
        (.visitMethod ^ClassVisitor cw access name desc signature thrown) access name desc))))
+
 (defn emit-wrapping-ctor* [cw acc ctor_ args body*]
-  (doto (visit-method cw acc (update ctor_ :param-types #(prepend-args args %)))
+  (doto (emit-method cw acc (update ctor_ :param-types #(prepend-args args %)))
     (body*)
     (.loadThis) (.loadArgs (count args) (count (:param-types ctor_)))
     (method-insn Opcodes/INVOKESPECIAL ctor_)
@@ -97,35 +99,8 @@
   `(emit-wrapping-ctor* 
      ~cw ~acc ~ctor_ ~args (fn [ga#] (doto (util/the GeneratorAdapter ga#) ~@body))))
 
-(defn ^Long flags
-  {:inline (fn expand-flags
-             ([a] `(long (or ~a 0)))
-             ([a1 & args]
-              `(long (bit-or ~@(for [a (cons a1 args)] `(or ~a 0))))))}
-  ([x] (or x 0))
-  ([x y] (bit-or (or x 0) (or y 0)))
-  ([x y & more] (apply bit-or (or x 0) (or y 0) (map #(or % 0) more))))
-
-(defn modifiers
-  ^long [x]
-  (condp instance? x
-    Executable (.getModifiers ^Executable x)
-    Field (.getModifiers ^Field x)
-    Class (.getModifiers ^Class x)))
-
 (def super-prefix "EMI_super_")
 (def impl-prefix "EMI_impl_")
-
-(defn uninteresting?
-  [^java.lang.reflect.Method x]
-  (let [mods (modifiers x)]
-    (or
-      (not (zero? (bit-and mods (flags Modifier/STATIC Modifier/FINAL Modifier/PRIVATE))))
-      (zero? (bit-and mods (flags Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))))))
-
-(defn overridable-methods
-  [^Class cls]
-  (->> (.getMethods cls) (remove uninteresting?) (util/distinct-by method-sig)))
 
 (let [java-8-class-version 52]
   (defn ^ClassWriter ->cw [access name sig super ifaces]
@@ -139,60 +114,61 @@
 (let [salt (delay (str/replace (.toString (java.util.UUID/randomUUID)) "-" ""))]
   (defonce unique-suffix (fn [] (str @salt (gensym "$")))))
 
-(defn emit-accept
-  [cw base ^Class impl get-impl-fd impl-fd m]
-  (let [m_ (method {:reflected m})
-        impl-m_ (util/updates (method {:reflected m :owner impl})
-                  :name #(str impl-prefix %)
-                  :param-types #(prepend-args [base] %))]
-    (doto (visit-method cw
-            (flags (if (Modifier/isPublic (modifiers m)) Opcodes/ACC_PUBLIC Opcodes/ACC_PROTECTED))
-            m_) (.visitCode)
-      (.loadThis)
-      (field-insn get-impl-fd impl-fd)
+(defn stub-key
+  [{:keys [base ifaces field-specs]}]
+  (let [pubs (remove :private? field-specs)]
+    [base ifaces
+     (mapv :name pubs)
+     (mapv #(meta (:form %)) pubs)]))
 
-      (.loadThis) (.loadArgs)
-      (method-insn (if (.isInterface impl) Opcodes/INVOKEINTERFACE Opcodes/INVOKEVIRTUAL)
-        impl-m_)
-      (.returnValue) (.endMethod))))
+(defn super-call-entry-point
+  [cls m]
+  (util/updates (method {:reflected m :owner cls})
+    :name #(str super-prefix %)
+    :param-types #(prepend-args [cls] %)))
 
-(def ^Class subcls-stub
-  (memoize
-    (fn [[^Class supcls ifaces pub-fd-specs :as _stub-desc]]
+(def ^Class subclass-stub
+  (util/locking-memo
+    stub-key 
+    (fn [{:keys [^Class base ifaces field-specs] :as _stub-desc}]
       (let [outname
             (str (namespace-munge this-ns) "._subcls_stub$" (unique-suffix))
             pub-fields
-            (mapv #(field (assoc % :owner outname)) pub-fd-specs)
+            (mapv #(field (assoc % :owner outname)) (remove :private? field-specs))
             cw 
             (->cw
               Opcodes/ACC_PUBLIC
               (util/dots2slashes outname) nil
-              (internal-name supcls) (into-array String (map internal-name ifaces)))]
+              (internal-name base) (into-array String (map internal-name ifaces)))]
         ; emit public fields
         (doseq [fd pub-fields]
-          (.visitEnd (visit-field cw (flags Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) fd)))
+          (doto (emit-field cw (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) fd)
+            (@Compiler/ADD_ANNOTATIONS (meta (:form fd)))
+            (.visitEnd)))
         ; we do something akin to:
         ; private void _super_foo(int x) { super.foo(x); }
         ; static void super_foo(FooBase self, int x) { return self._super_foo(x); }
         ; in order to get a publicly-callable and non-virtual accessor to the super method 
-        (doseq [^Executable m (overridable-methods supcls)
-                :let [m_ (method {:reflected m :owner supcls})
+        (doseq [m (util/distinct-by method-sig
+                    (filter parse/overrideable?
+                      (.getMethods base)))
+                :let [m_ (method {:reflected m :owner base})
                       sup_ (update (method {:reflected m :owner outname})
-                             :name #(str "_" super-prefix %))
-                      stat_ (util/updates m_
-                              :name #(str super-prefix %)
-                              :param-types #(prepend-args [outname] %))]]
-          (doto (visit-method cw Opcodes/ACC_PRIVATE sup_) (.visitCode)
+                             :name #(str "_" super-prefix %))]]
+          (doto (emit-method cw Opcodes/ACC_PRIVATE sup_) (.visitCode)
             (.loadThis) (.loadArgs)
             (method-insn Opcodes/INVOKESPECIAL m_)
             (.returnValue) (.endMethod))
-          (doto (visit-method cw (flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC) stat_) (.visitCode)
+          (doto (emit-method cw 
+                  (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
+                  (super-call-entry-point outname m)) 
+            (.visitCode)
             (.loadArgs)
             (method-insn Opcodes/INVOKEVIRTUAL sup_)
             (.returnValue) (.endMethod)))
         (doseq [ctor (or
-                       (seq (map #(do {:reflected %}) (.getConstructors supcls)))
-                       [{:name "<init>" :params [] :return Void/TYPE :owner supcls}])]
+                       (seq (map #(do {:reflected %}) (.getConstructors base)))
+                       [{:name "<init>" :params [] :return Void/TYPE :owner base}])]
           (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC (method ctor) (map :type pub-fields)
             (as-> ga
               (doseq [[i fd] (map vector (range) pub-fields)]
@@ -201,57 +177,60 @@
         (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
 
 (comment
-  (let [example (subcls-stub [java.util.ArrayList #{} [{:type Integer/TYPE :name "a"}]])]
-    [(.getMethods example)
-     (.getConstructors example)
-     (.getFields example)])
+  (let [parsed (parse/parse-extension-form
+                 {:base-sym 'java.util.ArrayList
+                  :body '[clojure.lang.IDeref java.util.List
+                          (deref [_] 3)]
+                  :fields '[^int dio]})
+        stub (subclass-stub parsed)]
+    [(.getDeclaredMethods stub)
+     (.getConstructors stub)
+     (.getFields stub)])
   )
 
 (def ^Class overrides-impl
-  (memoize
-    (fn [[^Class supcls ifaces _pub-fd-specs :as args]]
-      (let [out-name (str (namespace-munge this-ns) "._impl$" (unique-suffix))
-            subcls-base (subcls-stub args)
+  (util/locking-memo
+    stub-key
+    (fn [{:keys [^Class base sig->meths] :as stub-desc}]
+      (let [outname (str (namespace-munge this-ns) "._impl$" (unique-suffix))
+            stub (subclass-stub stub-desc)
             cw (->cw
-                 (flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
-                 (util/dots2slashes out-name) nil
-                 (internal-name Object) nil)
-            meths (util/distinct-by
-                    method-sig
-                    (into
-                      (vec (overridable-methods supcls))
-                      (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                      ifaces))]
-        (doseq [^Executable m meths
-                :let [m_ (method {:reflected m})
-                      stat_ (util/updates (method {:reflected m :owner subcls-base})
-                              :name #(str super-prefix %)
-                              :param-types #(prepend-args [subcls-base] %))]]
-          (let [super-impl?
-                (.isAssignableFrom (.getDeclaringClass m) subcls-base)
+                 (util/flags Opcodes/ACC_ABSTRACT Opcodes/ACC_INTERFACE Opcodes/ACC_PUBLIC)
+                 (util/dots2slashes outname) nil
+                 (internal-name Object) nil)]
+        (doseq [[_ ms] sig->meths
+                ^Executable m ms
+                :let [m_ (method {:reflected m})]]
+          (let [base-meth?
+                (.isAssignableFrom (.getDeclaringClass m) base)
                 emit-visit
-                (fn [mname-prefix]
-                  (doto (visit-method
+                (fn [mname-prefix super-call-if-base-meth?]
+                  (doto (emit-method
                           cw
-                          (flags Opcodes/ACC_PUBLIC (when-not super-impl? Opcodes/ACC_ABSTRACT))
+                          (util/flags 
+                            Opcodes/ACC_PUBLIC 
+                            (when-not (and base-meth? super-call-if-base-meth?) Opcodes/ACC_ABSTRACT))
                           (util/updates m_
                             :name #(str mname-prefix %)
-                            :param-types #(prepend-args [subcls-base] %)))
-                    (as-> mw
-                      (when super-impl?
-                        (doto mw
-                          (.visitCode) (.loadArgs)
-                          (method-insn Opcodes/INVOKESTATIC stat_)
-                          (.returnValue) (.endMethod))))
+                            :param-types #(prepend-args [stub] %)))
+                    (cond-> (and base-meth? super-call-if-base-meth?)
+                      (doto 
+                        (.visitCode) 
+                        (.loadArgs)
+                        (method-insn Opcodes/INVOKESTATIC (super-call-entry-point stub m))
+                        (.returnValue) (.endMethod)))
                     (.visitEnd)))]
-            (emit-visit super-prefix)
-            (emit-visit impl-prefix)))
-        (util/load-and-compile out-name (.toByteArray (doto cw (.visitEnd))))))))
+            (emit-visit super-prefix true)
+            (emit-visit impl-prefix false)))
+        (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
 
 (defn ^Class defsubtype-cls
-  [{[cls ifaces pub-fd-specs] :stub-desc :keys [outname ^Class real-impl extensible? priv-fd-specs]}]
-  (let [base
-        (subcls-stub [cls ifaces pub-fd-specs])
+  [{cls-anns :meta :keys [outname ^Class real-impl extensible? stub-desc]}]
+  (let [{:keys [ifaces field-specs sig->impl-spec sig->meths]}
+        stub-desc
+        priv-fd-specs (vec (filter :private? field-specs))
+        stub
+        (subclass-stub stub-desc)
         impl-stateless?
         (= 0 (count priv-fd-specs))
         impl-ctor_
@@ -261,23 +240,32 @@
           (method {:reflected f}))
         cw
         (->cw
-          (flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
+          (util/flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
           (util/dots2slashes outname) nil
-          (internal-name base) (into-array String (map #(internal-name %) ifaces)))
+          (internal-name stub) (into-array String (map #(internal-name %) ifaces)))
         impl-fd
-        (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})]
-    (doto (visit-field cw 
-            (flags Opcodes/ACC_PRIVATE (when impl-stateless? Opcodes/ACC_STATIC)) 
-            impl-fd)
-      (.visitEnd))
+        (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})
+        get-impl-fd
+        (if impl-stateless?
+          #(field-insn % Opcodes/GETSTATIC impl-fd)
+          #(doto ^GeneratorAdapter %
+             (.loadThis)
+             (field-insn Opcodes/GETFIELD impl-fd)))]
+    (@Compiler/ADD_ANNOTATIONS cw cls-anns)
+    #_"emit field and <clinit> if stateless" 
+    (.visitEnd
+      (emit-field cw
+        (util/flags Opcodes/ACC_PRIVATE (when impl-stateless? Opcodes/ACC_STATIC))
+        impl-fd))
     (when impl-stateless?
-      (doto (visit-method cw (flags Opcodes/ACC_PRIVATE Opcodes/ACC_STATIC)
+      (doto (emit-method cw (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_STATIC)
               (method {:name "<clinit>" :params [] :return Void/TYPE :owner outname}))
         (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
         (.dup) (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
         (field-insn Opcodes/PUTSTATIC impl-fd)
-        (.returnValue) (.endMethod)))
-    (doseq [se-ctor (.getConstructors base)
+        (.returnValue) (.endMethod))) 
+    #_"wrap all ctors"
+    (doseq [se-ctor (.getConstructors stub)
             :let [se-ctor_ (method {:reflected se-ctor})]]
       (if impl-stateless?
         (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ [])
@@ -286,38 +274,69 @@
           (.dup) (.loadArgs 0 (count (:param-types impl-ctor_)))
           (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
           (field-insn Opcodes/PUTFIELD impl-fd))))
-    (doseq [m (util/distinct-by method-sig
-                (into (vec (overridable-methods cls))
-                  (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                  ifaces))]
-      (emit-accept cw 
-        base real-impl 
-        (if impl-stateless? Opcodes/GETSTATIC Opcodes/GETFIELD) impl-fd 
-        m))
+    #_"emit overrides"
+    (doseq [[sig impl-spec] sig->impl-spec
+            m (sig->meths sig)]
+      (let [annots (let [[_name [_self & args]] (:form impl-spec)]
+                     (mapv meta args))
+            m_ (method {:reflected m})
+            impl-m_ (util/updates (method {:reflected m :owner real-impl})
+                      :name #(str impl-prefix %)
+                      :param-types #(prepend-args [stub] %))
+            mw (emit-method cw
+                 (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
+                 m_)]
+        (doseq [[i ann] (map vector (range) annots)] 
+          (@Compiler/ADD_ANNOTATIONS mw ann i))
+        (doto mw
+          (.visitCode)
+          (get-impl-fd) (.loadThis) (.loadArgs) 
+          (method-insn Opcodes/INVOKEVIRTUAL impl-m_)
+          (.returnValue) (.endMethod))))
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
-(def ^Class instance-shell
-  (memoize
-    (fn [[^Class cls ifaces :as stub-desc]]
-      (let [outname (str (namespace-munge this-ns) "._shell$" (unique-suffix))
-            impl (overrides-impl stub-desc)
-            base (subcls-stub stub-desc)
-            cw (->cw
-                 Opcodes/ACC_PUBLIC
-                 (util/dots2slashes outname) nil 
-                 (internal-name base) (into-array String (map #(internal-name ^Class %) ifaces)))
-            impl-fd (field {:owner outname :name (name (gensym impl-prefix)) :type impl})]
-        (doto (visit-field cw Opcodes/ACC_PRIVATE impl-fd) 
-          (.visitEnd))
-        (doseq [ctor (.getConstructors base)
-                :let [ctor_ (method {:reflected ctor})]]
-          (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC ctor_ [impl]
-            (.loadThis) (.loadArg 0)
-            (field-insn Opcodes/PUTFIELD impl-fd)))
-        (doseq [m (util/distinct-by
-                    method-sig
-                    (into (vec (overridable-methods cls))
-                      (comp (mapcat #(.getMethods ^Class %)) (remove uninteresting?))
-                      ifaces))]
-          (emit-accept cw base impl Opcodes/GETFIELD impl-fd m))
-        (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
+(defn ^Class instance-cls
+  [{:keys [sig->meths sig->impl-spec ifaces] :as parsed}]
+  (let [outname (str (namespace-munge this-ns) "._shell$" (unique-suffix))
+        impl (overrides-impl parsed)
+        stub (subclass-stub parsed)
+        cw (->cw
+             Opcodes/ACC_PUBLIC
+             (util/dots2slashes outname) nil
+             (internal-name stub)
+             (into-array String (map #(internal-name ^Class %) ifaces)))
+        impl-fd (field {:owner outname :name (name (gensym impl-prefix)) :type impl})]
+    #_"emit impl field and ctor"
+    (.visitEnd (emit-field cw Opcodes/ACC_PRIVATE impl-fd))
+    (doseq [ctor (.getConstructors stub)
+            :let [ctor_ (method {:reflected ctor})]]
+      (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC ctor_ [impl]
+        (.loadThis) (.loadArg 0)
+        (field-insn Opcodes/PUTFIELD impl-fd)))
+    #_"Emit overrides, but only for the methods that are actually implemented
+       As it turns out, methods that differ only by return type are actually different
+       on the JVM."
+    (doseq [[sig impl-spec] sig->impl-spec
+            m (sig->meths sig)]
+      (let [[m-anns par-anns]
+            (let [[name_ [_self & args]] (:form impl-spec)]
+              [(meta name_) (mapv meta args)])
+            m_
+            (method {:reflected m})
+            impl-m_
+            (util/updates (method {:reflected m :owner impl})
+              :name #(str impl-prefix %)
+              :param-types #(prepend-args [stub] %))
+            mw
+            (emit-method cw
+              (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
+              m_)] 
+        (doseq [[i ann] (map vector (range) par-anns)]
+          (@Compiler/ADD_ANNOTATIONS mw ann i))
+        (doto mw
+          (@Compiler/ADD_ANNOTATIONS m-anns)
+          (.visitCode)
+          (.loadThis) (field-insn Opcodes/GETFIELD impl-fd) (.loadThis) (.loadArgs)
+          (method-insn Opcodes/INVOKEINTERFACE impl-m_)
+          (.returnValue) (.endMethod))))
+    (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
