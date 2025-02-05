@@ -1,4 +1,4 @@
-(ns io.github.evenmoreirrelevance.classy.parse
+(ns ^:no-doc io.github.evenmoreirrelevance.classy.parse
   (:require [io.github.evenmoreirrelevance.classy.util :as util])
   (:import
    (java.lang.reflect Method Modifier)

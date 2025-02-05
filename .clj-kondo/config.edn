@@ -1,4 +1,5 @@
 {:config-paths
  ["io/github/evenmoreirrelevance/classy"]
  :linters
- {:non-arg-vec-return-type-hint {:level :off}}}
+ {:non-arg-vec-return-type-hint {:level :off}
+  :redundant-ignore {:level :off}}}
