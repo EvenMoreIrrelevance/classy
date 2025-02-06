@@ -2,8 +2,7 @@
   (:require [clojure.tools.build.api :as b]
             [deps-deploy.deps-deploy :as deps-deploy]
             [clojure.string :as str]
-            [clojure.edn :as edn]
-            [clojure.test :as test]))
+            [clojure.edn :as edn]))
 
 (let [deps-edn (edn/read-string (slurp "deps.edn"))]
   (def lib (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :lib]))
@@ -105,8 +104,7 @@
                      (map str
                        (file-seq (java.io.File. "test/"))))]
     (run! #(load-file %) test-files)
-    (test/run-all-tests)))
-
+    (@(requiring-resolve 'clojure.test/run-all-tests))))
 
 (comment
   (test-all nil)

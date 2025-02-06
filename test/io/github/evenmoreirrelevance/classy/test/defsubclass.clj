@@ -22,7 +22,7 @@
     (test/is
       (thrown? Exception
         (util/evals-in-ns
-          (classy/defsubclass DoubleDecls (Object []) []
+          (classy/defsubclass DoubleDecls (Object) []
             (hashCode [_] 3)
             (hashCode [_] 3)))))
     (test/is
@@ -50,7 +50,7 @@
     (util/evals-in-ns
       (test/is
         (not (util/throwing? Exception  
-               (classy/defsubclass WithIntField (Object []) [^int x]
+               (classy/defsubclass WithIntField (Object) [^int x]
                  clojure.lang.IDeref
                  (deref [_] x)))))))
 
@@ -70,9 +70,9 @@
       (classy/defsubclass Ex3 [Ex2 [^String msg]] []
         (getMessage [_]
           (classy/super-call (.getMessage _))))
-      (let [e1 ^Exception (->Ex1 "hi")
-            e2 ^Exception (->Ex2 "hello")
-            e3 ^Exception (->Ex3 "bonjour")]
+      (let [e1 ^Ex1 (->Ex1 "hi")
+            e2 ^Ex2 (->Ex2 "hello")
+            e3 ^Ex3 (->Ex3 "bonjour")]
         (test/is (= (.getMessage e1) "ex1 message"))
         (test/is (= (.getData ^IExceptionInfo e1) (.getData ^IExceptionInfo e2) {:foo :bar}))
         (test/is (= (.getMessage e2) (.getMessage e3) "ex2 message; ex1 message")))))
