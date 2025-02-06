@@ -15,23 +15,24 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
     "super-call disallowed outside of impl bodies" {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
-(defn ^:private impl-body
-  [^Class base fd-specs [name_ [self & args] & body]]
-  (let [dehint-prim #(vary-meta % update :tag
-                       (fn [t]
-                         (when-not (some-> (util/type-of t) (.isPrimitive))
-                           t)))
-        self_ (gensym "self_")
-        hinted? (some #(:tag (meta %)) args)
-        sig-args (map #(with-meta %1 (meta %2)) (repeatedly #(gensym "arg_")) args)]
-    `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
-      [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
-      (let [~@(apply concat
-                (for [fd fd-specs]
-                  `[~(dehint-prim fd) (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
-            ~self ~self_]
-        (loop [~@(interleave (map dehint-prim args) sig-args)]
-          ~@body)))))
+(let [dehint-prim 
+      #(vary-meta % update :tag
+         (fn [t]
+           (when-not (some-> (util/type-of t) (.isPrimitive))
+             t)))]
+  (defn ^:private impl-body
+    [^Class base fd-specs [name_ [self & args] & body]]
+    (let [self_ (gensym "self_")
+          hinted? (some #(:tag (meta %)) args)
+          sig-args (map #(with-meta %1 (meta %2)) (repeatedly #(gensym "arg_")) args)]
+      `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
+        [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
+        (let [~@(apply concat
+                  (for [fd fd-specs]
+                    `[~(dehint-prim fd) (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
+              ~self ~self_]
+          (loop [~@(interleave (map dehint-prim args) sig-args)]
+            ~@body))))))
 
 (defmacro instance "
 Evaluates to an instance of `supcls` initialized with `ctor-args`, 
@@ -101,7 +102,7 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
       "ctor fn target arg names mustn't collide with field names" {:colliding colliding})
     (intern *ns* (symbol (str "->" relname)))
     (let [real-impl
-          (eval ;;we need the real impl at compile-time
+          (eval
             `(deftype ~(vary-meta (symbol implname) assoc :private true :no-doc true)
                [~@privates]
                ~@(apply concat (dissoc opts ::extensible?))
@@ -123,7 +124,8 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
                  ~@(for [s short-specs]
                      `([~@(map #(vary-meta % dissoc :tag) (concat fields s))]
                        (new ~(symbol absname)
-                         ~@(concat privates publics) ; privates go into the impl, publics into the stub
+                         #_"Privates are passed in before publics."
+                         ~@(concat privates publics)
                          ~@s)))
                  ~@(when (seq long-specs)
                      (let [head-args (repeatedly 19 #(gensym "arg"))

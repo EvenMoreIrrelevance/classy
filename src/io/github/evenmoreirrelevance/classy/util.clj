@@ -86,6 +86,7 @@
   {:inline (fn [p x] `(~p ~x))}
   [p x] (p x))
 
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defmacro condctx
   ([] nil)
   ([x] x)
@@ -131,9 +132,8 @@
   ([f] 
     (locking-memo identity f))
   ([keyf f]
-  ;; unlike `memoize` which is meant for performance
-  ;; this is meant to ensure that only one version of the input is ever created,
-  ;; which is why we lock on the cache.
+    #_"unlike `memoize` which is made for performance, this ensures that
+       the function successfully terminates only once for each value of (apply keyf args)."
    (let [cache (atom {})]
      (fn [& args]
        (let [k (apply keyf args)]

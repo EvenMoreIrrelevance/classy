@@ -1,16 +1,11 @@
 (ns io.github.evenmoreirrelevance.classy.test.defsubclass
-  (:import (clojure.lang IExceptionInfo))
   (:require
    [io.github.evenmoreirrelevance.classy.core :as classy]
    [io.github.evenmoreirrelevance.classy.util :as util]
    [clojure.test :as test]))
 
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defonce tomb (Object.))
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defonce notfound (Object.))
-
-#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defmacro entry [k v] `(clojure.lang.MapEntry/create ~k ~v))
 
 (definterface AmbiguousOverloads
@@ -74,7 +69,7 @@
             e2 ^Ex2 (->Ex2 "hello")
             e3 ^Ex3 (->Ex3 "bonjour")]
         (test/is (= (.getMessage e1) "ex1 message"))
-        (test/is (= (.getData ^IExceptionInfo e1) (.getData ^IExceptionInfo e2) {:foo :bar}))
+        (test/is (= (.getData e1) (.getData e2) {:foo :bar}))
         (test/is (= (.getMessage e2) (.getMessage e3) "ex2 message; ex1 message")))))
 
   (test/testing "extensibie? option"

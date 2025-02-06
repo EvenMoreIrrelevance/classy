@@ -92,7 +92,6 @@
                                  (filter seq? body))))]
     (util/throw-when [dupes (seq (keep #(when (< 1 (count (val %))) (key %)) sig->impl-specs))]
       "duplicate impl for some methods." {:dupes dupes})
-    ;; atm we let the underlying `reify`/`deftype` handle dupes for us
     {:base base
      :ifaces ifaces
      :sig->meths sigs->meths

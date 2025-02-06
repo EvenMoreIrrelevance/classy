@@ -16,8 +16,8 @@
 (defn descriptor
   (^String [classname-or-class]
    (condp util/is? classname-or-class
-     ; NOTE: assumes that if the input is a string, it names an object class.
-     string? (if (and 
+     #_"NOTE: assumes that if the input is a string, it names an object class."
+     string? (if (and
                    (str/starts-with? classname-or-class "L")
                    (str/ends-with? classname-or-class ";"))
                classname-or-class
@@ -29,7 +29,7 @@
 (defn internal-name
   [classname-or-class]
   (condp util/is? classname-or-class
-    ; NOTE: assumes that if the class is a string, it names an object class.
+    #_"NOTE: assumes that if the input is a string, it names an object class."
     string? (util/dots2slashes classname-or-class)
     class? (Type/getInternalName ^Class classname-or-class)
     #(instance? Type %) (.getInternalName ^Type classname-or-class)
@@ -109,8 +109,6 @@
 
 (def this-ns *ns*)
 
-; to limit the scenario described in the roadmap.
-
 (let [salt (delay (str/replace (.toString (java.util.UUID/randomUUID)) "-" ""))]
   (defonce unique-suffix (fn [] (str @salt (gensym "$")))))
 
@@ -140,15 +138,15 @@
               Opcodes/ACC_PUBLIC
               (util/dots2slashes outname) nil
               (internal-name base) (into-array String (map internal-name ifaces)))]
-        ; emit public fields
+        #_"emit public fields"
         (doseq [fd pub-fields]
           (doto (emit-field cw (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) fd)
             (@Compiler/ADD_ANNOTATIONS (meta (:form fd)))
             (.visitEnd)))
-        ; we do something akin to:
-        ; private void _super_foo(int x) { super.foo(x); }
-        ; static void super_foo(FooBase self, int x) { return self._super_foo(x); }
-        ; in order to get a publicly-callable and non-virtual accessor to the super method 
+        #_"we do something akin to:
+           private void _super_foo(int x) { super.foo(x); }
+           static void super_foo(FooBase self, int x) { return self._super_foo(x); }
+           in order to get a publicly-callable and non-virtual accessor to the super method."
         (doseq [m (util/distinct-by method-sig
                     (filter parse/overrideable?
                       (.getMethods base)))
