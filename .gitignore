@@ -1,5 +1,7 @@
 .vscode
 .calva
+.clj-kondo/inline-configs
+.clj-kondo/babashka
 .clj-kondo/.cache
 .clj-kondo/.lock
 .cpcache
