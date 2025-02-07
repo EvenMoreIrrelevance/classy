@@ -4,6 +4,10 @@
             [clojure.string :as str]
             [clojure.edn :as edn]))
 
+(defn ^:private re-quote
+  (^String [s]
+   (java.util.regex.Pattern/quote s)))
+
 (let [deps-edn (edn/read-string (slurp "deps.edn"))]
   (def lib (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :lib]))
   (def version (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :mvn/version])))
@@ -75,18 +79,31 @@
      (run! deref [re ri])
      res)))
 
-(defn deploy [_]
+(defn test-all
+  [_]
+  (let [test-files (filter #(str/ends-with? % ".clj")
+                     (map str
+                       (file-seq (java.io.File. "test/"))))]
+    (run! #(load-file %) test-files)
+    (@(requiring-resolve 'clojure.test/run-all-tests)
+     (re-pattern (str (re-quote (str (namespace lib) "." (name lib) ".test.")) ".*")))))
+
+(defn deploy [{:keys [test?] :as _opts}]
   (let [b (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"]))]
     (when-not (= b "main")
       (throw (ex-info "must be on main branch" {:branch b}))))
-  (when-not (and 
+  (when-not (and
               (= 0 (runit ["git" "diff-index" "--quiet" "--cached" "HEAD" "--"]))
               (= 0 (runit ["git" "diff-files" "--quiet"])))
     (throw (ex-info "worktree or index not clean" {})))
+  (when test?
+    (let [{:keys [fail error]} (test-all nil)]
+      (when (or (< 0 fail) (< 0 error))
+        (throw (ex-info "tests failed." {:fail fail :error error})))))
   (let [tag (str "v" version)]
     (when (= tag (with-out-str (runit ["git" "tag" "--list" tag])))
       (throw (ex-info "version already tagged" {:version version})))
-    (jar _)
+    (jar _opts)
     (when-not (and
                 (= 0 (runit ["git" "commit" "-am" (str "deploy " tag)]))
                 (= 0 (runit ["git" "tag" "--force" tag]))
@@ -98,16 +115,8 @@
        :installer :remote
        :sign-releases? false})))
 
-(defn test-all
-  [_]
-  (let [test-files (filter #(str/ends-with? % ".clj")
-                     (map str
-                       (file-seq (java.io.File. "test/"))))]
-    (run! #(load-file %) test-files)
-    (@(requiring-resolve 'clojure.test/run-all-tests))))
 
 (comment
   (test-all nil)
-  (jar nil)
-  (deploy nil)
+  (deploy {:test? true})
   )
