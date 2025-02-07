@@ -1,5 +1,6 @@
 (ns ^:no-doc io.github.evenmoreirrelevance.classy.parse
-  (:require [io.github.evenmoreirrelevance.classy.util :as util])
+  (:require
+   [io.github.evenmoreirrelevance.classy.util :as util])
   (:import
    (java.lang.reflect Method Modifier)
    (clojure.asm Opcodes)))
@@ -79,8 +80,8 @@
 
 (defn parse-extension-form
   [{:keys [base-sym body fields]}]
-  (let [base (parse-class base-sym) 
-        ifaces (into #{} (comp (filter symbol?) (map parse-iface)) body) 
+  (let [base (parse-class base-sym)
+        ifaces (into #{} (comp (filter symbol?) (map parse-iface)) body)
         sigs->meths (group-by #(pop (method-sig %))
                       (util/distinct-by method-sig
                         (sort-by #(if (base-method? base %) 1 0)
@@ -121,5 +122,4 @@
        (valAt [_ k d] (k->v k d))
        clojure.lang.IObj
        (meta [_] meta_)
-       (withMeta [_ newmeta] (->WrapperMap newmeta keys_ k->v))]})
-  )
+       (withMeta [_ newmeta] (->WrapperMap newmeta keys_ k->v))]}))

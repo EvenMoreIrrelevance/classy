@@ -80,7 +80,7 @@
 (defn field-insn [^GeneratorAdapter ga opcode {:keys [owner-iname name type-desc]}]
   (.visitFieldInsn ga opcode owner-iname name type-desc))
 
-(defn emit-field 
+(defn emit-field
   (^FieldVisitor [^ClassVisitor cw access {:keys [init name type-desc signature]}]
    (.visitField cw access name type-desc signature init)))
 (defn emit-method
@@ -96,7 +96,7 @@
     (method-insn Opcodes/INVOKESPECIAL ctor_)
     (.returnValue) (.endMethod)))
 (defmacro emit-wrapping-ctor [cw acc ctor_ args & body]
-  `(emit-wrapping-ctor* 
+  `(emit-wrapping-ctor*
      ~cw ~acc ~ctor_ ~args (fn [ga#] (doto (util/the GeneratorAdapter ga#) ~@body))))
 
 (def super-prefix "EMI_super_")
@@ -127,13 +127,13 @@
 
 (def ^Class subclass-stub
   (util/locking-memo
-    stub-key 
+    stub-key
     (fn [{:keys [^Class base ifaces field-specs] :as _stub-desc}]
       (let [outname
             (str (namespace-munge this-ns) "._subcls_stub$" (unique-suffix))
             pub-fields
             (mapv #(field (assoc % :owner outname)) (remove :private? field-specs))
-            cw 
+            cw
             (->cw
               Opcodes/ACC_PUBLIC
               (util/dots2slashes outname) nil
@@ -157,9 +157,9 @@
             (.loadThis) (.loadArgs)
             (method-insn Opcodes/INVOKESPECIAL m_)
             (.returnValue) (.endMethod))
-          (doto (emit-method cw 
+          (doto (emit-method cw
                   (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
-                  (super-call-entry-point outname m)) 
+                  (super-call-entry-point outname m))
             (.visitCode)
             (.loadArgs)
             (method-insn Opcodes/INVOKEVIRTUAL sup_)
@@ -183,8 +183,7 @@
         stub (subclass-stub parsed)]
     [(.getDeclaredMethods stub)
      (.getConstructors stub)
-     (.getFields stub)])
-  )
+     (.getFields stub)]))
 
 (def ^Class overrides-impl
   (util/locking-memo
@@ -205,15 +204,15 @@
                 (fn [mname-prefix super-call-if-base-meth?]
                   (doto (emit-method
                           cw
-                          (util/flags 
-                            Opcodes/ACC_PUBLIC 
+                          (util/flags
+                            Opcodes/ACC_PUBLIC
                             (when-not (and base-meth? super-call-if-base-meth?) Opcodes/ACC_ABSTRACT))
                           (util/updates m_
                             :name #(str mname-prefix %)
                             :param-types #(prepend-args [stub] %)))
                     (cond-> (and base-meth? super-call-if-base-meth?)
-                      (doto 
-                        (.visitCode) 
+                      (doto
+                        (.visitCode)
                         (.loadArgs)
                         (method-insn Opcodes/INVOKESTATIC (super-call-entry-point stub m))
                         (.returnValue) (.endMethod)))
@@ -328,7 +327,7 @@
             mw
             (emit-method cw
               (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
-              m_)] 
+              m_)]
         (doseq [[i ann] (map vector (range) par-anns)]
           (@Compiler/ADD_ANNOTATIONS mw ann i))
         (doto mw

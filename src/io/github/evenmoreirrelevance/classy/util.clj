@@ -1,8 +1,8 @@
 (ns ^:no-doc io.github.evenmoreirrelevance.classy.util
-  (:import (java.lang.reflect Member))
   (:require
    [clojure.string :as str]
-   [io.github.evenmoreirrelevance.classy.util :as util]))
+   [io.github.evenmoreirrelevance.classy.util :as util])
+  (:import (java.lang.reflect Member)))
 
 (defn dots2slashes
   [s]
@@ -129,10 +129,10 @@
     Class (.getModifiers ^Class x)))
 
 (defn locking-memo
-  ([f] 
-    (locking-memo identity f))
+  ([f]
+   (locking-memo identity f))
   ([keyf f]
-    #_"unlike `memoize` which is made for performance, this ensures that
+   #_"unlike `memoize` which is made for performance, this ensures that
        the function successfully terminates only once for each value of (apply keyf args)."
    (let [cache (atom {})]
      (fn [& args]
@@ -141,7 +141,7 @@
            (val e)
            (locking cache
              (if-let [e (find @cache k)]
-               (val e) 
+               (val e)
                (doto (apply f args) (->> (swap! cache assoc k)))))))))))
 
 (defmacro evals-in-ns
@@ -149,7 +149,7 @@
   `(binding [*ns* ~*ns*]
      (do ~@(for [e expr] `(eval '~e)))))
 
-(defmacro throwing? 
+(defmacro throwing?
   [cls & frms]
   `(try (do ~@frms false)
      (catch ~cls _# true)

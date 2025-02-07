@@ -1,4 +1,4 @@
-{:remove-surrounding-whitespace? false
+{:remove-surrounding-whitespace? true
  :remove-trailing-whitespace? true
  :remove-consecutive-blank-lines? false
  :insert-missing-whitespace? false

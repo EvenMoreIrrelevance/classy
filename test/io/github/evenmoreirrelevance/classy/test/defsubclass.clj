@@ -31,7 +31,7 @@
             AmbiguousOverloads
             (lol [_ x] x)
             (lol [_ x] x))))))
-  
+
   (test/testing "hinting"
     (test/is
       (not (util/throwing? Exception
@@ -40,11 +40,11 @@
                  AmbiguousOverloads
                  (lol [_ ^int x] x)
                  (lol [_ ^long y] y)))))))
-  
+
   (test/testing "primitives"
     (util/evals-in-ns
       (test/is
-        (not (util/throwing? Exception  
+        (not (util/throwing? Exception
                (classy/defsubclass WithIntField (Object) [^int x]
                  clojure.lang.IDeref
                  (deref [_] x)))))))

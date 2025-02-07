@@ -15,7 +15,7 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
     "super-call disallowed outside of impl bodies" {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
-(let [dehint-prim 
+(let [dehint-prim
       #(vary-meta % update :tag
          (fn [t]
            (when-not (some-> (util/type-of t) (.isPrimitive))
@@ -86,11 +86,11 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
         {privates true publics false} (group-by parse/fd-spec-private? fields)
         {:keys [::extensible?] :as opts} (into {} raw-opts)
         body (apply concat raw-specs)
-        absname (str (namespace-munge *ns*) "." relname) 
+        absname (str (namespace-munge *ns*) "." relname)
         stub-desc (parse/parse-extension-form {:base-sym base :body body :fields fields})
         implname (str "_EMI_real_impl$" relname)
         stub (compile/subclass-stub stub-desc)
-        impl (compile/overrides-impl stub-desc) 
+        impl (compile/overrides-impl stub-desc)
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
     (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
@@ -110,7 +110,7 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
                ~@(sequence
                    (comp (filter seq?) (map (partial impl-body stub publics)))
                    body)))]
-      
+
       (compile/defsubtype-cls
         {:stub-desc stub-desc
          :outname absname

@@ -4,7 +4,7 @@
             [clojure.string :as str]
             [clojure.edn :as edn]))
 
-(defn ^:private re-quote
+(defn re-quote
   (^String [s]
    (java.util.regex.Pattern/quote s)))
 
@@ -58,10 +58,10 @@
     update "clojars" merge (get creds (namespace lib))))
 
 (defn dump-reader
-  [src targ]
+  [src ^java.io.Writer targ]
   (let [buffsrc (java.io.BufferedReader. ^java.io.Reader src)]
     (doseq [^String l (take-while some? (repeatedly #(.readLine buffsrc)))]
-      (.append ^java.io.Writer targ l))))
+      (.append targ (str l "\n")))))
 
 (defn runit
   ([args] (runit {} args))
@@ -115,8 +115,7 @@
        :installer :remote
        :sign-releases? false})))
 
-
 (comment
+  (clean nil)
   (test-all nil)
-  (deploy {:test? true})
-  )
+  (deploy {:test? true}))
