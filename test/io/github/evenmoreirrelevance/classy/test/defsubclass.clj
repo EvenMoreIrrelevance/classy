@@ -48,7 +48,7 @@
                       (catch IllegalAccessError _ nil)
                       (catch IllegalAccessException _ nil))
             impl-cls (class (some-> ^Field impl-fd (.get nil)))]
-        (when impl-cls
+        (when impl-cls #_"skip test if we can't access the inner class"
           (let [cls-anns (.getAnnotations Annotated)
                 impl-anns (.getAnnotations impl-cls)]
             (test/is (instance? Deprecated (first cls-anns)))
