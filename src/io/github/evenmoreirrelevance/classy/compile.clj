@@ -274,18 +274,19 @@
     #_"emit overrides"
     (doseq [[sig impl-spec] sig->impl-spec
             m (sig->meths sig)]
-      (let [annots (let [[_name [_self & args]] (:form impl-spec)]
-                     (mapv meta args))
+      (let [[m-anns par-anns] (let [[name_ [_self & args]] (:form impl-spec)]
+                                [(meta name_) (mapv meta args)])
             m_ (method {:reflected m})
             impl-m_ (util/updates (method {:reflected m :owner real-impl})
                       :name #(str impl-prefix %)
                       :param-types #(prepend-args [stub] %))
             mw (emit-method cw
                  (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
-                 m_)]
-        (doseq [[i ann] (map vector (range) annots)]
+                 m_)] 
+        (doseq [[i ann] (map vector (range) par-anns)]
           (@Compiler/ADD_ANNOTATIONS mw ann i))
         (doto mw
+          (@Compiler/ADD_ANNOTATIONS m-anns)
           (.visitCode)
           (get-impl-fd) (.loadThis) (.loadArgs)
           (method-insn Opcodes/INVOKEVIRTUAL impl-m_)

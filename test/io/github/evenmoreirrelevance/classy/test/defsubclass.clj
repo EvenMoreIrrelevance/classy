@@ -1,5 +1,7 @@
 (ns io.github.evenmoreirrelevance.classy.test.defsubclass
+  (:import java.lang.reflect.Field java.lang.Deprecated)
   (:require
+   [clojure.string :as str]
    [io.github.evenmoreirrelevance.classy.core :as classy]
    [io.github.evenmoreirrelevance.classy.util :as util]
    [clojure.test :as test]))
@@ -30,7 +32,35 @@
           (classy/defsubclass AmbiguousHints (Object) []
             AmbiguousOverloads
             (lol [_ x] x)
-            (lol [_ x] x))))))
+            (lol [_ x] x)))))) 
+
+  (test/testing "annotations"
+    (util/evals-in-ns 
+      (classy/defsubclass ^{Deprecated true} Annotated (Object)
+                        [^{Deprecated true} f]
+                        clojure.lang.ILookup
+                        (^{Deprecated true} valAt [_ ^{Deprecated true} _f]))
+      (let [impl-fd (try
+                      (doto ^Field (first
+                                     (filter #(str/starts-with? (.getName ^Field %) "EMI_impl")
+                                       (.getDeclaredFields Annotated)))
+                        (.setAccessible true))
+                      (catch IllegalAccessError _ nil)
+                      (catch IllegalAccessException _ nil))
+            impl-cls (class (some-> ^Field impl-fd (.get nil)))]
+        (when impl-cls
+          (let [cls-anns (.getAnnotations Annotated)
+                impl-anns (.getAnnotations impl-cls)]
+            (test/is (instance? Deprecated (first cls-anns)))
+            (test/is (empty? impl-anns)))
+          (let [cls-meth (.getMethod Annotated "valAt" (into-array [Object]))
+                impl-meth (.getMethod impl-cls "EMI_impl_valAt"
+                            (into-array [(.getSuperclass Annotated) Object]))]
+            (test/is (instance? Deprecated (first (.getAnnotations cls-meth))))
+            (test/is (empty? (.getAnnotations impl-meth)))
+
+            (test/is (instance? Deprecated (first (apply concat (.getParameterAnnotations cls-meth)))))
+            (test/is (empty? (apply concat (.getParameterAnnotations impl-meth)))))))))
 
   (test/testing "hinting"
     (test/is

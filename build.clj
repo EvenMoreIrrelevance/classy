@@ -1,8 +1,9 @@
 (ns build
-  (:require [clojure.tools.build.api :as b]
-            [deps-deploy.deps-deploy :as deps-deploy]
-            [clojure.string :as str]
-            [clojure.edn :as edn]))
+  (:require
+   [clojure.tools.build.api :as b]
+   [deps-deploy.deps-deploy :as deps-deploy]
+   [clojure.string :as str]
+   [clojure.edn :as edn]))
 
 (defn re-quote
   (^String [s]
@@ -90,7 +91,7 @@
 
 (defn deploy [{:keys [test?] :as _opts}]
   (let [b (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"]))]
-    (when-not (= b "main")
+    (when-not (= (str/trim b) "main")
       (throw (ex-info "must be on main branch" {:branch b}))))
   (when-not (and
               (= 0 (runit ["git" "diff-index" "--quiet" "--cached" "HEAD" "--"]))
@@ -115,7 +116,7 @@
        :installer :remote
        :sign-releases? false})))
 
-(comment
+(comment 
   (clean nil)
   (test-all nil)
   (deploy {:test? true}))

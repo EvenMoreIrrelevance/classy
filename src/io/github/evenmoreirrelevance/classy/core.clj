@@ -15,24 +15,32 @@ Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspec
     "super-call disallowed outside of impl bodies" {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
-(let [dehint-prim
-      #(vary-meta % update :tag
-         (fn [t]
-           (when-not (some-> (util/type-of t) (.isPrimitive))
-             t)))]
-  (defn ^:private impl-body
-    [^Class base fd-specs [name_ [self & args] & body]]
-    (let [self_ (gensym "self_")
-          hinted? (some #(:tag (meta %)) args)
-          sig-args (map #(with-meta %1 (meta %2)) (repeatedly #(gensym "arg_")) args)]
-      `(~(vary-meta (symbol (str compile/impl-prefix name_)) assoc :tag (:tag (meta name_)))
-        [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
-        (let [~@(apply concat
-                  (for [fd fd-specs]
-                    `[~(dehint-prim fd) (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
-              ~self ~self_]
-          (loop [~@(interleave (map dehint-prim args) sig-args)]
-            ~@body))))))
+(defn ^:private dehint-prim
+  [sym]
+  (vary-meta sym update :tag
+    (fn [t]
+      (when-not (some-> (util/type-of t) (.isPrimitive))
+        t))))
+
+(defn ^:private copy-meta
+  ([to from]
+   (with-meta to (meta from)))
+  ([to from select]
+   (with-meta to (select-keys (meta from) select))))
+
+(defn ^:private impl-body
+  [^Class base fd-specs [name_ [self & args] & body]]
+  (let [self_ (gensym "self_")
+        hinted? (some #(:tag (meta %)) args)
+        sig-args (map #(copy-meta %1 %2 [:tag]) (repeatedly #(gensym "arg_")) args)]
+    `(~(copy-meta (symbol (str compile/impl-prefix name_)) name_ [:tag])
+      [~'EMI_in_impl_body ~(cond-> self_ hinted? (vary-meta assoc :tag (.getName base))) ~@sig-args]
+      (let [~@(apply concat
+                (for [fd fd-specs]
+                  `[~(dehint-prim fd) (. ~self_ ~(symbol (str "-" (munge (name fd)))))]))
+            ~self ~self_]
+        (loop [~@(interleave (map #(with-meta % nil) args) sig-args)]
+          ~@body)))))
 
 (defmacro instance "
 Evaluates to an instance of `supcls` initialized with `ctor-args`, 
