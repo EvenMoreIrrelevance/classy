@@ -32,14 +32,14 @@
           (classy/defsubclass AmbiguousHints (Object) []
             AmbiguousOverloads
             (lol [_ x] x)
-            (lol [_ x] x)))))) 
+            (lol [_ x] x))))))
 
   (test/testing "annotations"
-    (util/evals-in-ns 
+    (util/evals-in-ns
       (classy/defsubclass ^{Deprecated true} Annotated (Object)
-                        [^{Deprecated true} f]
-                        clojure.lang.ILookup
-                        (^{Deprecated true} valAt [_ ^{Deprecated true} _f]))
+        [^{Deprecated true} f]
+        clojure.lang.ILookup
+        (^{Deprecated true} valAt [_ ^{Deprecated true} _f]))
       (let [impl-fd (try
                       (doto ^Field (first
                                      (filter #(str/starts-with? (.getName ^Field %) "EMI_impl")

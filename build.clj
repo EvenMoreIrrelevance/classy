@@ -90,8 +90,8 @@
      (re-pattern (str (re-quote (str (namespace lib) "." (name lib) ".test.")) ".*")))))
 
 (defn deploy [{:keys [test?] :as _opts}]
-  (let [b (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"]))]
-    (when-not (= (str/trim b) "main")
+  (let [b (str/trim (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"])))]
+    (when-not (= "main" b)
       (throw (ex-info "must be on main branch" {:branch b}))))
   (when-not (and
               (= 0 (runit ["git" "diff-index" "--quiet" "--cached" "HEAD" "--"]))
@@ -102,7 +102,7 @@
       (when (or (< 0 fail) (< 0 error))
         (throw (ex-info "tests failed." {:fail fail :error error})))))
   (let [tag (str "v" version)]
-    (when (= tag (with-out-str (runit ["git" "tag" "--list" tag])))
+    (when (= tag (str/trim (with-out-str (runit ["git" "tag" "--list" tag]))))
       (throw (ex-info "version already tagged" {:version version})))
     (jar _opts)
     (when-not (and

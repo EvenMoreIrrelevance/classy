@@ -1,6 +1,3 @@
-## Support for annotations
-Test on public fields; todo: forcibly remove them from the impls' bodies.
-
 ## AOT
 We now generate an opaque name for the impl class, with the unique part consisting of a UUID drawn at startup and a gensym drawn at macroexpand time. I consider this to be sufficient.
 
