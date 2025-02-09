@@ -221,120 +221,113 @@
             (emit-visit impl-prefix false)))
         (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))))
 
+(defn emit-override-methods
+  [^ClassWriter cw get-impl-fd {:keys [sig->meths sig->impl-spec] :as stub-desc}]
+  (doseq [[sig impl-spec] sig->impl-spec
+          m (sig->meths sig)]
+    (let [stub (subclass-stub stub-desc)
+          impl (overrides-impl stub-desc)
+          [m-anns par-anns]
+          (let [[name_ [_self & args]] (:form impl-spec)]
+            [(meta name_) (mapv meta args)])
+          m_ (method {:reflected m})
+          impl-m_ (util/updates (method {:reflected m :owner impl})
+                    :name #(str impl-prefix %)
+                    :param-types #(prepend-args [stub] %))
+          mw (emit-method cw
+               (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
+               m_)]
+      (doseq [[i ann] (map vector (range) par-anns)]
+        (@Compiler/ADD_ANNOTATIONS mw ann i))
+      (doto mw
+        (@Compiler/ADD_ANNOTATIONS m-anns)
+        (.visitCode)
+        (get-impl-fd) (.loadThis) (.loadArgs)
+        (method-insn Opcodes/INVOKEINTERFACE impl-m_)
+        (.returnValue) (.endMethod)))))
+
+#_"TODO: is it worth unifying? I say not yet, given that though a bunch of things are the same
+   there still are significant differences."
 (defn ^Class defsubtype-cls
-  [{cls-anns :meta :keys [outname ^Class real-impl extensible? stub-desc]}]
-  (let [{:keys [ifaces field-specs sig->impl-spec sig->meths]}
+  [{cls-anns :meta 
+    :keys [outname ^Class real-impl extensible? stub-desc]}]
+  (let [{:keys [ifaces field-specs]}
         stub-desc
-        priv-fd-specs (vec (filter :private? field-specs))
         stub
         (subclass-stub stub-desc)
         impl-stateless?
-        (= 0 (count priv-fd-specs))
-        impl-ctor_
-        (let [[f & m :as all] (.getConstructors real-impl)]
-          (util/throw-when [_ (seq m)]
-            "impl must have exactly one ctor" {:impl real-impl :found (count all)})
-          (method {:reflected f}))
+        (= 0 (count (filter :private? field-specs)))
+        impl-fd
+        (field {:owner outname :name (name (gensym impl-prefix)) :type (overrides-impl stub-desc)})
         cw
         (->cw
           (util/flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
           (util/dots2slashes outname) nil
-          (internal-name stub) (into-array String (map #(internal-name %) ifaces)))
-        impl-fd
-        (field {:owner outname :name (name (gensym impl-prefix)) :type real-impl})
-        get-impl-fd
-        (if impl-stateless?
-          #(field-insn % Opcodes/GETSTATIC impl-fd)
-          #(doto ^GeneratorAdapter %
-             (.loadThis)
-             (field-insn Opcodes/GETFIELD impl-fd)))]
+          (internal-name stub) (into-array String (map #(internal-name %) ifaces)))]
     (@Compiler/ADD_ANNOTATIONS cw cls-anns)
     #_"emit field and <clinit> if stateless"
     (.visitEnd
       (emit-field cw
-        (util/flags Opcodes/ACC_PRIVATE (when impl-stateless? Opcodes/ACC_STATIC))
+        (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL 
+          (when impl-stateless? Opcodes/ACC_STATIC))
         impl-fd))
-    (when impl-stateless?
-      (doto (emit-method cw (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_STATIC)
-              (method {:name "<clinit>" :params [] :return Void/TYPE :owner outname}))
-        (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
-        (.dup) (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
-        (field-insn Opcodes/PUTSTATIC impl-fd)
-        (.returnValue) (.endMethod)))
-    #_"wrap all ctors"
-    (doseq [se-ctor (.getConstructors stub)
-            :let [se-ctor_ (method {:reflected se-ctor})]]
+    #_"deal w/ ctors"
+    (let [impl-ctor_
+          (let [[f & m :as all] (.getConstructors real-impl)]
+            (util/throw-when [_ (seq m)]
+              "impl must have exactly one ctor" {:impl real-impl :found (count all)})
+            (method {:reflected f}))]
+      (when impl-stateless?
+        (doto (emit-method cw (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_STATIC)
+                (method {:name "<clinit>" :params [] :return Void/TYPE :owner outname}))
+          (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
+          (.dup) (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
+          (field-insn Opcodes/PUTSTATIC impl-fd)
+          (.returnValue) (.endMethod)))
+      (doseq [se-ctor (.getConstructors stub)
+              :let [se-ctor_ (method {:reflected se-ctor})]]
+        (if impl-stateless?
+          (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ [])
+          (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ (:param-types impl-ctor_)
+            (.loadThis) (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
+            (.dup) (.loadArgs 0 (count (:param-types impl-ctor_)))
+            (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
+            (field-insn Opcodes/PUTFIELD impl-fd)))))
+    (emit-override-methods cw
       (if impl-stateless?
-        (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ [])
-        (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC se-ctor_ (:param-types impl-ctor_)
-          (.loadThis) (.visitTypeInsn Opcodes/NEW (internal-name real-impl))
-          (.dup) (.loadArgs 0 (count (:param-types impl-ctor_)))
-          (method-insn Opcodes/INVOKESPECIAL impl-ctor_)
-          (field-insn Opcodes/PUTFIELD impl-fd))))
-    #_"emit overrides"
-    (doseq [[sig impl-spec] sig->impl-spec
-            m (sig->meths sig)]
-      (let [[m-anns par-anns] (let [[name_ [_self & args]] (:form impl-spec)]
-                                [(meta name_) (mapv meta args)])
-            m_ (method {:reflected m})
-            impl-m_ (util/updates (method {:reflected m :owner real-impl})
-                      :name #(str impl-prefix %)
-                      :param-types #(prepend-args [stub] %))
-            mw (emit-method cw
-                 (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
-                 m_)] 
-        (doseq [[i ann] (map vector (range) par-anns)]
-          (@Compiler/ADD_ANNOTATIONS mw ann i))
-        (doto mw
-          (@Compiler/ADD_ANNOTATIONS m-anns)
-          (.visitCode)
-          (get-impl-fd) (.loadThis) (.loadArgs)
-          (method-insn Opcodes/INVOKEVIRTUAL impl-m_)
-          (.returnValue) (.endMethod))))
+        #(field-insn % Opcodes/GETSTATIC impl-fd)
+        #(doto ^GeneratorAdapter %
+           (.loadThis)
+           (field-insn Opcodes/GETFIELD impl-fd)))
+      stub-desc)
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
 
 (defn ^Class instance-cls
-  [{:keys [sig->meths sig->impl-spec ifaces] :as parsed}]
-  (let [outname (str (namespace-munge this-ns) "._shell$" (unique-suffix))
-        impl (overrides-impl parsed)
-        stub (subclass-stub parsed)
-        cw (->cw
-             Opcodes/ACC_PUBLIC
-             (util/dots2slashes outname) nil
-             (internal-name stub)
-             (into-array String (map #(internal-name ^Class %) ifaces)))
-        impl-fd (field {:owner outname :name (name (gensym impl-prefix)) :type impl})]
-    #_"emit impl field and ctor"
-    (.visitEnd (emit-field cw Opcodes/ACC_PRIVATE impl-fd))
+  [{:keys [ifaces] :as stub-desc}]
+  (let [outname
+        (str (namespace-munge this-ns) "._shell$" (unique-suffix))
+        impl
+        (overrides-impl stub-desc)
+        stub
+        (subclass-stub stub-desc)
+        impl-fd
+        (field {:owner outname :name (name (gensym impl-prefix)) :type impl})
+        cw
+        (->cw
+          Opcodes/ACC_PUBLIC
+          (util/dots2slashes outname) nil
+          (internal-name stub)
+          (into-array String (map #(internal-name ^Class %) ifaces)))]
+    #_"emit impl field and ctors"
+    (.visitEnd (emit-field cw (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL) impl-fd))
     (doseq [ctor (.getConstructors stub)
             :let [ctor_ (method {:reflected ctor})]]
       (emit-wrapping-ctor cw Opcodes/ACC_PUBLIC ctor_ [impl]
         (.loadThis) (.loadArg 0)
         (field-insn Opcodes/PUTFIELD impl-fd)))
-    #_"Emit overrides, but only for the methods that are actually implemented
-       As it turns out, methods that differ only by return type are actually different
-       on the JVM."
-    (doseq [[sig impl-spec] sig->impl-spec
-            m (sig->meths sig)]
-      (let [[m-anns par-anns]
-            (let [[name_ [_self & args]] (:form impl-spec)]
-              [(meta name_) (mapv meta args)])
-            m_
-            (method {:reflected m})
-            impl-m_
-            (util/updates (method {:reflected m :owner impl})
-              :name #(str impl-prefix %)
-              :param-types #(prepend-args [stub] %))
-            mw
-            (emit-method cw
-              (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
-              m_)]
-        (doseq [[i ann] (map vector (range) par-anns)]
-          (@Compiler/ADD_ANNOTATIONS mw ann i))
-        (doto mw
-          (@Compiler/ADD_ANNOTATIONS m-anns)
-          (.visitCode)
-          (.loadThis) (field-insn Opcodes/GETFIELD impl-fd) (.loadThis) (.loadArgs)
-          (method-insn Opcodes/INVOKEINTERFACE impl-m_)
-          (.returnValue) (.endMethod))))
+    (emit-override-methods cw
+      #(doto ^GeneratorAdapter %
+         (.loadThis)
+         (field-insn Opcodes/GETFIELD impl-fd))
+      stub-desc)
     (util/load-and-compile outname (.toByteArray (doto cw (.visitEnd))))))
