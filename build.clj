@@ -106,8 +106,6 @@
   (let [origin (str/trim (with-out-str (runit ["git" "config" "--get" "remote.origin.url"])))]
     (when-not (= repo?? origin)
       (throw (ex-info "origin not the same as repo in libdesc" {:origin origin :repo repo??}))))
-  (when-not repo??
-    (throw (ex-info "no repo to push to" {})))
   (let [b (str/trim (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"])))]
     (when-not (= "main" b)
       (throw (ex-info "must be on main branch" {:branch b}))))
