@@ -153,14 +153,13 @@
                 :let [m_ (method {:reflected m :owner base})
                       sup_ (update (method {:reflected m :owner outname})
                              :name #(str "_" super-prefix %))]]
-          (doto (emit-method cw Opcodes/ACC_PRIVATE sup_) (.visitCode)
+          (doto (emit-method cw Opcodes/ACC_PRIVATE sup_)
             (.loadThis) (.loadArgs)
             (method-insn Opcodes/INVOKESPECIAL m_)
             (.returnValue) (.endMethod))
           (doto (emit-method cw
                   (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_STATIC)
-                  (super-call-entry-point outname m))
-            (.visitCode)
+                  (super-call-entry-point outname m)) 
             (.loadArgs)
             (method-insn Opcodes/INVOKEVIRTUAL sup_)
             (.returnValue) (.endMethod)))
@@ -212,7 +211,6 @@
                             :param-types #(prepend-args [stub] %)))
                     (cond-> (and base-meth? super-call-if-base-meth?)
                       (doto
-                        (.visitCode)
                         (.loadArgs)
                         (method-insn Opcodes/INVOKESTATIC (super-call-entry-point stub m))
                         (.returnValue) (.endMethod)))
@@ -241,7 +239,6 @@
         (@Compiler/ADD_ANNOTATIONS mw ann i))
       (doto mw
         (@Compiler/ADD_ANNOTATIONS m-anns)
-        (.visitCode)
         (get-impl-fd) (.loadThis) (.loadArgs)
         (method-insn Opcodes/INVOKEINTERFACE impl-m_)
         (.returnValue) (.endMethod)))))
@@ -265,13 +262,12 @@
           (util/dots2slashes outname) nil
           (internal-name stub) (into-array String (map #(internal-name %) ifaces)))]
     (@Compiler/ADD_ANNOTATIONS cw cls-anns)
-    #_"emit field and <clinit> if stateless"
+    #_"emit impl field"
     (.visitEnd
       (emit-field cw
-        (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL 
-          (when impl-stateless? Opcodes/ACC_STATIC))
+        (util/flags Opcodes/ACC_PRIVATE Opcodes/ACC_FINAL (when impl-stateless? Opcodes/ACC_STATIC))
         impl-fd))
-    #_"deal w/ ctors"
+    #_"deal w/ ctors and <clinit>"
     (let [impl-ctor_
           (let [[f & m :as all] (.getConstructors real-impl)]
             (util/throw-when [_ (seq m)]
