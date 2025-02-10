@@ -48,21 +48,25 @@
                       (catch IllegalAccessError _ nil)
                       (catch IllegalAccessException _ nil))
             impl-cls (class (some-> ^Field impl-fd (.get nil)))]
-        (when impl-cls #_"skip test if we can't access the inner class"
-          (let [cls-anns (.getAnnotations Annotated)
-                impl-anns (.getAnnotations impl-cls)]
-            (test/is (instance? Deprecated (first cls-anns)))
-            (test/is (empty? impl-anns)))
-          (let [cls-meth (.getMethod Annotated "valAt" (into-array [Object]))
-                impl-meth (.getMethod impl-cls "EMI_impl_valAt"
-                            (into-array [(.getSuperclass Annotated) Object]))]
-            (test/is (instance? Deprecated (first (.getAnnotations cls-meth))))
-            (test/is (empty? (.getAnnotations impl-meth)))
+        (when-not impl-cls
+          (binding [*out* *err*]
+            (println 
+              (str "WARNING: skipping some tests in" *ns* "due to impl class not being accessible."))))
+        (let [cls-anns (.getAnnotations Annotated)
+              impl-anns (when impl-cls (.getAnnotations impl-cls))]
+          (test/is (instance? Deprecated (first cls-anns)))
+          (when impl-cls (test/is (empty? impl-anns))))
+        (let [cls-meth (.getMethod Annotated "valAt" (into-array [Object]))
+              impl-meth (when impl-cls
+                          (.getMethod impl-cls "EMI_impl_valAt"
+                            (into-array [(.getSuperclass Annotated) Object])))]
+          (test/is (instance? Deprecated (first (.getAnnotations cls-meth))))
+          (when impl-cls (test/is (empty? (.getAnnotations impl-meth))))
 
-            (test/is (instance? Deprecated (first (apply concat (.getParameterAnnotations cls-meth)))))
-            (test/is (empty? (apply concat (.getParameterAnnotations impl-meth))))
+          (test/is (instance? Deprecated (first (apply concat (.getParameterAnnotations cls-meth)))))
+          (when impl-cls (test/is (empty? (apply concat (.getParameterAnnotations impl-meth)))))
 
-            (test/is (instance? Deprecated (first (.getAnnotations (.getField Annotated "f"))))))))))
+          (test/is (instance? Deprecated (first (.getAnnotations (.getField Annotated "f")))))))))
 
   (test/testing "hinting"
     (test/is
