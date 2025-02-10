@@ -11,7 +11,8 @@
 
 (let [deps-edn (edn/read-string (slurp "deps.edn"))]
   (def lib (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :lib]))
-  (def version (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :mvn/version])))
+  (def version (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :mvn/version]))
+  (def repo?? (get-in deps-edn [:io.github.evenmoreirrelevance/libdesc :repo])))
 
 (def class-dir "target/classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
@@ -30,10 +31,22 @@
     :src-dirs ["src"]))
 
 (defn clean [_]
-  (b/delete {:path "target"}))
+  (b/delete {:path "target"})
+  (b/delete {:path "pom.xml"}))
 
 (defn sync-pom [_]
-  (b/write-pom (conj (jar-opts {}) {:target "." :class-dir nil})))
+  (b/write-pom 
+    (conj (jar-opts {}) 
+      {:target "." 
+       :class-dir nil
+       :scm
+       {:url repo??
+        :tag (str "v" version)}
+       :pom-data
+       [[:licenses
+         [:license
+          [:name "Eclipse Public License 2.0"]
+          [:url "https://opensource.org/license/epl-2-0/"]]]]})))
 
 (defn export-kondo [_]
   (let [postfix (str (str/replace (namespace lib) \. \/) "/" (name lib) "/")]
@@ -90,6 +103,11 @@
      (re-pattern (str (re-quote (str (namespace lib) "." (name lib) ".test.")) ".*")))))
 
 (defn deploy [{:keys [test?] :as _opts}]
+  (let [origin (str/trim (with-out-str (runit ["git" "config" "--get" "remote.origin.url"])))]
+    (when-not (= repo?? origin)
+      (throw (ex-info "origin not the same as repo in libdesc" {:origin origin :repo repo??}))))
+  (when-not repo??
+    (throw (ex-info "no repo to push to" {})))
   (let [b (str/trim (with-out-str (runit ["git" "rev-parse" "--abbrev-ref" "HEAD"])))]
     (when-not (= "main" b)
       (throw (ex-info "must be on main branch" {:branch b}))))
@@ -117,6 +135,7 @@
        :sign-releases? false})))
 
 (comment 
+  (sync-pom nil)
   (clean nil)
   (test-all nil)
   (deploy {:test? true}))

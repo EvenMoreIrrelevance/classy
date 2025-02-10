@@ -4,14 +4,8 @@
   <packaging>jar</packaging>
   <groupId>io.github.evenmoreirrelevance</groupId>
   <artifactId>classy</artifactId>
-  <version>0.2.2-beta</version>
+  <version>0.2.3-beta</version>
   <name>classy</name>
-  <licenses>
-    <license>
-      <name>Eclipse Public License 2.0</name>
-      <url>http://www.eclipse.org/legal/epl-v20.html</url>
-    </license>
-  </licenses>
   <dependencies>
     <dependency>
       <groupId>org.clojure</groupId>
@@ -29,7 +23,13 @@
     </repository>
   </repositories>
   <scm>
-    <url>https://github.com/EvenMoreIrrelevance/classy.git</url>
-    <tag>v0.2.2-beta</tag>
+    <tag>v0.2.3-beta</tag>
+    <url>https://github.com/EvenMoreIrrelevance/classy</url>
   </scm>
+  <licenses>
+    <license>
+      <name>Eclipse Public License 2.0</name>
+      <url>https://opensource.org/license/epl-2-0/</url>
+    </license>
+  </licenses>
 </project>
