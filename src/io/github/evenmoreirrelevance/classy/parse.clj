@@ -3,7 +3,7 @@
    [io.github.evenmoreirrelevance.classy.util :as util])
   (:import
    (java.lang.reflect Method Modifier)
-   (clojure.asm Opcodes)))
+   (org.objectweb.asm Opcodes)))
 
 (defn fd-spec-private?
   #_"keep this around; parsing the fields and then proceeeding to pull the form right back out

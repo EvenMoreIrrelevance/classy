@@ -2,15 +2,16 @@
   (:require
    [clojure.string :as str]
    [io.github.evenmoreirrelevance.classy.util :as util]
-   [io.github.evenmoreirrelevance.classy.parse :as parse])
+   [io.github.evenmoreirrelevance.classy.parse :as parse]
+   [io.github.evenmoreirrelevance.classy.annotations :as annotations])
   (:import
-   (clojure.asm
+   (org.objectweb.asm
      ClassWriter
      FieldVisitor
      ClassVisitor
      Opcodes
      Type)
-   (clojure.asm.commons GeneratorAdapter)
+   (org.objectweb.asm.commons GeneratorAdapter)
    (java.lang.reflect Executable Field Modifier)))
 
 (defn descriptor
@@ -104,7 +105,7 @@
 
 (let [java-8-class-version 52]
   (defn ^ClassWriter ->cw [access name sig super ifaces]
-    (doto (ClassWriter. (bit-or ClassWriter/COMPUTE_FRAMES clojure.asm.ClassWriter/COMPUTE_MAXS))
+    (doto (ClassWriter. (bit-or ClassWriter/COMPUTE_FRAMES org.objectweb.asm.ClassWriter/COMPUTE_MAXS))
       (.visit java-8-class-version access name sig super ifaces))))
 
 (def this-ns *ns*)
@@ -141,7 +142,7 @@
         #_"emit public fields"
         (doseq [fd pub-fields]
           (doto (emit-field cw (util/flags Opcodes/ACC_PUBLIC Opcodes/ACC_FINAL) fd)
-            (@Compiler/ADD_ANNOTATIONS (meta (:form fd)))
+            (annotations/add-annotations (meta (:form fd)))
             (.visitEnd)))
         #_"we do something akin to:
            private void _super_foo(int x) { super.foo(x); }
@@ -236,9 +237,9 @@
                (if (Modifier/isProtected (util/modifiers m)) Opcodes/ACC_PROTECTED Opcodes/ACC_PUBLIC)
                m_)]
       (doseq [[i ann] (map vector (range) par-anns)]
-        (@Compiler/ADD_ANNOTATIONS mw ann i))
+        (annotations/add-annotations mw ann i))
       (doto mw
-        (@Compiler/ADD_ANNOTATIONS m-anns)
+        (annotations/add-annotations m-anns)
         (get-impl-fd) (.loadThis) (.loadArgs)
         (method-insn Opcodes/INVOKEINTERFACE impl-m_)
         (.returnValue) (.endMethod)))))
@@ -261,7 +262,7 @@
           (util/flags Opcodes/ACC_PUBLIC (when-not extensible? Opcodes/ACC_FINAL))
           (util/dots2slashes outname) nil
           (internal-name stub) (into-array String (map #(internal-name %) ifaces)))]
-    (@Compiler/ADD_ANNOTATIONS cw cls-anns)
+    (annotations/add-annotations cw cls-anns)
     #_"emit impl field"
     (.visitEnd
       (emit-field cw
