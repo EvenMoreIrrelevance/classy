@@ -60,7 +60,9 @@
             (test/is (empty? (.getAnnotations impl-meth)))
 
             (test/is (instance? Deprecated (first (apply concat (.getParameterAnnotations cls-meth)))))
-            (test/is (empty? (apply concat (.getParameterAnnotations impl-meth)))))))))
+            (test/is (empty? (apply concat (.getParameterAnnotations impl-meth))))
+
+            (test/is (instance? Deprecated (first (.getAnnotations (.getField Annotated "f"))))))))))
 
   (test/testing "hinting"
     (test/is
