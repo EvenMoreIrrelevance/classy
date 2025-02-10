@@ -10,9 +10,9 @@ Akin to calling a `super` method in Java.
 Behavior for calls outside of `instance` and `defsubclass` impl bodies is unspecified."
   [[m targ & args :as wrapped]]
   (util/throw-when [_ (not (str/starts-with? (name m) "."))]
-    "expected syntax: (super-call (.<method> targ ...args))" {:found wrapped})
+    "Expected syntax: (super-call (.<method> targ ...args))." {:found wrapped})
   (util/throw-when [_ (not (get &env 'EMI_in_impl_body))]
-    "super-call disallowed outside of impl bodies" {})
+    "Invocation of super-call disallowed outside of impl bodies." {})
   `(. ~'EMI_in_impl_body (~(symbol (str compile/super-prefix (subs (name m) 1))) ~targ ~@args)))
 
 (defn ^:private dehint-prim
@@ -102,12 +102,12 @@ Unlike -say- a Proxy output, the output class can be inherited from with no fric
         ctor-spec-overlong? #(< 20 (+ (count %) (count fields)))
         {short-specs false long-specs true} (group-by ctor-spec-overlong? ctor-fn-targets)]
     (util/throw-when [_ (not= (count ctor-fn-targets) (count (util/distinct-by count ctor-fn-targets)))]
-      "ctor fn targets must be distinguishable by count alone" {:specs ctor-fn-targets})
+      "Can't have two ctor fn targets with the same arity." {:specs ctor-fn-targets})
     (util/throw-when [colliding (seq (filter
                                        #(not= (+ (count %) (count fields))
                                           (count (-> #{} (into fields) (into %))))
                                        ctor-fn-targets))]
-      "ctor fn target arg names mustn't collide with field names" {:colliding colliding})
+      "Ctor fn target args and fields must have distinct names." {:colliding colliding})
     (intern *ns* (symbol (str "->" relname)))
     (let [real-impl
           (eval

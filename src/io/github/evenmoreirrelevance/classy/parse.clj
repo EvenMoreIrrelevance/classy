@@ -33,14 +33,13 @@
      (if-not hinted?
        (let [[m & more] (get name+arity->sigs [munged-name (count args)])]
          (util/throw-when [_ (or (nil? m) (seq more))]
-           "couldn't resolve single method for non-hinted impl"
-           {:first-candidate m
-            :more-candidates more
-            :impl impl})
+           "Couldn't resolve method to implement from name and arity alone; use type hints."
+           {:first-candidate m :more-candidates more :impl impl})
          m)
        (let [impl-sig [munged-name (map #(or (util/type-of (:tag (meta %))) Object) args)]]
          (util/throw-when [_ (not (contains? sigs impl-sig))]
-           "couldn't resolve sig for hinted impl" {:impl-sig impl-sig :impl impl})
+           "Couldn't resolve method from hinted impl body; check that the signature matches."
+           {:impl-sig impl-sig :impl impl})
          impl-sig))]
     {:form impl
      :name munged-name
@@ -52,18 +51,23 @@
   (let [r (resolve sym)]
     (cond
       (var? r)
-      (cast Class (or (:on-interface @r) (throw (ex-info "not a protocol:" {:sym sym}))))
+      (cast Class
+        (or (:on-interface @r) (throw (ex-info "Symbol doesn't refer to an interface or a protocol." {:sym sym}))))
       (not (class? r))
-      (throw (ex-info "not a class" {:sym sym :resolved-type (class r)}))
+      (throw (ex-info "Symbol doesn't refer to an interface or a protocol." {:sym sym :resolved-type (class r)}))
       (not (.isInterface ^Class r))
-      (throw (ex-info "not an interface" {:sym sym :resolved-val r}))
+      (throw (ex-info "Can only implement interfaces." {:sym sym :resolved-val r}))
       :else r)))
 
 (defn parse-class
   [sym]
-  (let [r (resolve sym)]
+  (let [^Class r (resolve sym)]
     (util/throw-when [_ (not (class? r))]
-      "Couldn't parse class" {:sym sym :resolved-val r})
+      "Couldn't resolve a class object." {:sym sym :resolved-type (type r)})
+    (util/throw-when [_ (.isInterface r)]
+      "Can't inherit from interface." {:resolved-val r})
+    (util/throw-when [_ (Modifier/isFinal (.getModifiers r))]
+      "Can't inherit from final class." {:resolved-val r})
     r))
 
 (defn overrideable?
@@ -92,7 +96,7 @@
                           (vec (map (partial parse-impl (into #{} (keys sigs->meths)))
                                  (filter seq? body))))]
     (util/throw-when [dupes (seq (keep #(when (< 1 (count (val %))) (key %)) sig->impl-specs))]
-      "duplicate impl for some methods." {:dupes dupes})
+      "Duplicate implementations for some signatures." {:dupes dupes})
     {:base base
      :ifaces ifaces
      :sig->meths sigs->meths
