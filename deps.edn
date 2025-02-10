@@ -6,6 +6,9 @@
  :deps
  {org.clojure/clojure {:mvn/version "1.11.4"}}
 
+ :src-paths
+ ["src"]
+
  :aliases
  {:dev
   {:extra-paths
